@@ -42,8 +42,8 @@ def train():
     criterion = MarginLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
-    # 3. 模拟数据加载 (B, C, H, W) -> (8, 1, 11, 4500)
-    # C是特征通道维
+    # 3. 模拟数据加载 (B, C, E, T) -> (8, 1, 11, 4500)
+    # C是特征通道维，E 是电极数，T 是时间采样点数
     x_alpha = torch.randn(batch_size, 1, 11, 4500)
     x_beta = torch.randn(batch_size, 1, 11, 4500)
     labels = torch.randint(0, 2, (batch_size,)) # 标签 0 或 1

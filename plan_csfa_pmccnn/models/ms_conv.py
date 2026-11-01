@@ -5,18 +5,21 @@ class MultiScaleConvLayer(nn.Module):
     """
     图 3.2 中的并行多尺度卷积层 (PMCNN 的基础单元)
 
-    输入:  (B, C_in, H, W)
-    输出:  (B, C_out, H, W)          # H/W 不变，只改变通道数
+    输入:  (B, C_in, E, T)      E: 电极/导联数, T: 时间采样点数
+    输出:  (B, C_out, E, T)     # E/T 均不变，只改变通道数
 
     4 个分支各输出 C_out // 4 个通道，最后沿 dim=1 拼接：
-      分支1: 1x1 Conv                        (B, C_in, H, W) -> (B, C_out//4, H, W)
-      分支2: 1x1 Conv -> 3x3 Conv(pad=1)     (B, C_in, H, W) -> (B, mid, H, W) -> (B, C_out//4, H, W)
-      分支3: 1x1 Conv -> 5x5 Conv(pad=2)     (B, C_in, H, W) -> (B, mid, H, W) -> (B, C_out//4, H, W)
-      分支4: 3x3 AvgPool(pad=1) -> 1x1 Conv  (B, C_in, H, W) -> (B, C_in, H, W) -> (B, C_out//4, H, W)
-    拼接: 4 * (C_out//4) = C_out，得到 (B, C_out, H, W)
+      分支1: 1x1 Conv                        (B, C_in, E, T) -> (B, C_out//4, E, T)
+      分支2: 1x1 Conv -> 3x3 Conv(pad=1)     (B, C_in, E, T) -> (B, mid, E, T) -> (B, C_out//4, E, T)
+      分支3: 1x1 Conv -> 5x5 Conv(pad=2)     (B, C_in, E, T) -> (B, mid, E, T) -> (B, C_out//4, E, T)
+      分支4: 3x3 AvgPool(pad=1) -> 1x1 Conv  (B, C_in, E, T) -> (B, C_in, E, T) -> (B, C_out//4, E, T)
+    拼接: 4 * (C_out//4) = C_out，得到 (B, C_out, E, T)
+
+    注意: 3x3 / 5x5 的方核同时覆盖电极轴 E 与时间轴 T（图 3.2 的原始设计），
+    即卷积会混合相邻电极与相邻采样点。
 
     mid = max(C_in // reduction, 8)
-    例: (8, 64, 6, 2250) -> (8, 128, 6, 2250)
+    例: (8, 64, 11, 2250) -> (8, 128, 11, 2250)
     """
     def __init__(self, in_channels, out_channels, reduction=4):
         super(MultiScaleConvLayer, self).__init__()
@@ -52,7 +55,7 @@ class MultiScaleConvLayer(nn.Module):
             nn.ReLU(inplace=True)
         )
         
-        # 分支 4: AvgPool -> 1x1
+        # 分支 4: 3x3 AvgPool -> 1x1
         self.branch4 = nn.Sequential(
             nn.AvgPool2d(kernel_size=3, stride=1, padding=1),
             nn.Conv2d(in_channels, branch_channels, kernel_size=1, bias=False),
@@ -61,6 +64,7 @@ class MultiScaleConvLayer(nn.Module):
         )
 
     def forward(self, x):
+        # x: (B, C_in, E, T)
         b1 = self.branch1(x)
         b2 = self.branch2(x)
         b3 = self.branch3(x)

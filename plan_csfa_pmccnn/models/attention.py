@@ -6,7 +6,7 @@ class ChannelAttention(nn.Module):
     """通道注意力 (2.4.3节)"""
     def __init__(self, channels, reduction=16):
         super(ChannelAttention, self).__init__()
-        # (B, C, H, W) -> (B, C, 1, 1)
+        # (B, C, E, T) -> (B, C, 1, 1)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
         
@@ -26,7 +26,7 @@ class ChannelAttention(nn.Module):
 
 
 class SpatialAttention(nn.Module):
-    """空间注意力 (2.4.4节)"""
+    """空间注意力 (2.4.4节)：在 (E, T) 平面上做二维卷积生成权重图"""
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
         self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
@@ -43,36 +43,6 @@ class SpatialAttention(nn.Module):
         return x * self.sigmoid(out)
 
 
-class FrequencyChannelAttention(nn.Module):
-    """频率通道注意力 (2.4.5节) - 基于FFT频谱统计的通道加权"""
-    def __init__(self, channels, reduction=16):
-        super(FrequencyChannelAttention, self).__init__()
-        # 采用类似通道注意力的门控结构作用于频谱
-        # 区别只在于：上面个两种注意力输入的是空间域池化结果，这里的输入是频域幅度谱的池化结果。
-        self.fc = nn.Sequential(
-            nn.Linear(channels, channels // reduction, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(channels // reduction, channels, bias=False),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        B, C, H, W = x.size()
-        # 1. 二维快速傅里叶变换
-        # rfft2 只计算沿最后一维的非负频率部分
-        # 输入：(B, C, H, W) -> 输出：(B, C, H, W//2 + 1)
-        fft_x = torch.fft.rfft2(x, norm='ortho')
-        # 2. 取幅度谱
-        amp = torch.abs(fft_x)
-        # 3. 全局池化获取每个通道的频域统计量
-        # 在频率维度（H 和 W/2+1 两个频率轴）上做全局平均，得到 (B, C)
-        # 含义：每个通道的平均频谱能量
-        pooled_amp = torch.mean(amp, dim=(2, 3))
-        # 4. 生成频域权重
-        weight = self.fc(pooled_amp).view(B, C, 1, 1)
-        # 5. 权重作用于原图 (这里采用类似通道注意力的加权方式)
-        return x * weight
-
 class FrequencyAttention(nn.Module):
     """真正的频率注意力 (2.4.5节) - 在频域进行幅度加权"""
     def __init__(self, channels, reduction=16):
@@ -87,12 +57,12 @@ class FrequencyAttention(nn.Module):
         )
 
     def forward(self, x):
-        B, C, H, W = x.size()
+        B, C, E, T = x.size()
         
-        # 1. 傅里叶变换
-        # rfft2 只计算沿最后一维的非负频率部分
-        # 输入：(B, C, H, W) -> 输出：(B, C, H, W//2 + 1)
-        fft_x = torch.fft.rfft2(x, norm='ortho') # (B, C, H, W//2 + 1)
+        # 1. 一维傅里叶变换：只沿时间轴 T 做
+        # 电极轴上的"空间频率"没有生理意义，因此不对 E 做 FFT
+        # 输入：(B, C, E, T) -> 输出：(B, C, E, T//2 + 1)
+        fft_x = torch.fft.rfft(x, dim=-1, norm='ortho') # (B, C, E, T//2 + 1)
         
         # 2. 分离幅度和相位
         amp = torch.abs(fft_x)
@@ -113,7 +83,7 @@ class FrequencyAttention(nn.Module):
         imag = amp_weighted * torch.sin(phase)
         fft_weighted = torch.complex(real, imag)
         
-        # 7. 逆傅里叶变换，回到时间/空间域
-        out = torch.fft.irfft2(fft_weighted, s=(H, W), norm='ortho')
+        # 7. 逆一维傅里叶变换，回到时间域，用 n=T 保证还原出原始长度
+        out = torch.fft.irfft(fft_weighted, n=T, dim=-1, norm='ortho')
         
         return out

@@ -18,14 +18,14 @@ class PrimaryCaps(nn.Module):
                               kernel_size=kernel_size, stride=stride, bias=False)
 
     def forward(self, x):
-        # x: (B, in_channels, H, W)
+        # x: (B, in_channels, E, T)
         out = self.conv(x) 
-        # 此时 out 形状: (B, out_capsules * capsule_dim, H', W')
+        # 此时 out 形状: (B, out_capsules * capsule_dim, E, T)
         
         # 【核心修改】使用 einops 一行完成拆分与重排
-        # 逻辑：把通道维 (n d) 拆开，把空间维 (h w) 合并，最后把胶囊维度 d 放到最后
-        out = rearrange(out, 'b (n d) h w -> b (n h w) d', n=self.out_capsules, d=self.capsule_dim)
-        # 此时 out 形状: (B, N, capsule_dim)，其中 N = out_capsules * H' * W'
+        # 逻辑：把通道维 (n d) 拆开，把电极-时间维 (e t) 合并，最后把胶囊维度 d 放到最后
+        out = rearrange(out, 'b (n d) e t -> b (n e t) d', n=self.out_capsules, d=self.capsule_dim)
+        # 此时 out 形状: (B, N, capsule_dim)，其中 N = out_capsules * E * T
         
         # Squash 非线性
         return self.squash(out)

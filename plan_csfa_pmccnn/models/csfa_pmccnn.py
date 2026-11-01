@@ -44,6 +44,7 @@ class CSFAPMCCNN(nn.Module):
         self.digit_caps = DigitCaps(in_caps=8, in_dim=16, num_caps=num_classes, out_dim=16, num_routing=3)
         
     def forward(self, x_alpha, x_beta):
+        # x_alpha / x_beta: (B, C, E, T)，E 为电极数，T 为时间采样点数
         # ---------------- 第一阶段 ----------------
         a = self.alpha_ca(self.alpha_ms_conv1(x_alpha))
         a = self.alpha_pool1(a)
