@@ -30,23 +30,34 @@ class MarginLoss(nn.Module):
 
 
 def train():
+    # 固定随机种子，保证每次运行结果一致
+    seed = 42
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     # 1. 超参数设定
     batch_size = 8
     epochs = 10
     learning_rate = 1e-3
+
+    # 2. 模拟数据加载 (B, C, E, T) -> (8, 1, 122, 1651)
+    # C 是特征通道维（模型 in_channels=1），E 是电极数，T 是时间采样点数
+    in_channels = 1
+    num_classes = 2
+    x_alpha = torch.randn(batch_size, in_channels, 122, 1651)
+    x_beta = torch.randn(batch_size, in_channels, 122, 1651)
     
-    # 2. 实例化模型、损失函数、优化器
-    model = CSFAPMCCNN(in_channels=1, num_classes=2)
+    # 3. 实例化模型、损失函数、优化器
+    model = CSFAPMCCNN(in_channels, num_classes)
     
     # 胶囊层输出的是各类别的模长，使用 Margin Loss (论文公式 2.24)
     criterion = MarginLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
-    # 3. 模拟数据加载 (B, C, E, T) -> (8, 1, 11, 4500)
-    # C是特征通道维，E 是电极数，T 是时间采样点数
-    x_alpha = torch.randn(batch_size, 1, 11, 4500)
-    x_beta = torch.randn(batch_size, 1, 11, 4500)
-    labels = torch.randint(0, 2, (batch_size,)) # 标签 0 或 1
+    # 标签 0, 1, ..., num_classes-1
+    labels = torch.randint(0, num_classes, (batch_size,)) 
     
     # 4. 训练循环
     model.train()
