@@ -1,13 +1,23 @@
 """Chisco-1.0 EEG 预处理脚本。
 
-事件来自 Trigger 通道，每个试次起点编码为 65380；文本来自
-``textdataset/split_data_{run}.xlsx`` 第一列。
+在项目根目录用 uv 运行::
 
-``--ica-mode`` 提供两种编排：
+    # continuous：连续 raw + 文本 sidecar
+    uv run scripts/preprocessing.py --subject sub-01 --ica-mode continuous --n-jobs 4
 
-- ``continuous``    ：在连续 raw 上拟合 ICA，输出 ``*_raw.fif`` 和 ``*_text.tsv``
-- ``per-condition`` ：按 read / imagine 切分，各自 AutoReject + ICA，
-  输出 ``*_read_epo.fif`` / ``*_imagine_epo.fif``
+    # per-condition：read / imagine epoch
+    uv run scripts/preprocessing.py --subject sub-01 --ica-mode per-condition --n-jobs 4
+
+    # 多个被试
+    uv run scripts/preprocessing.py --subject 01 02 03 --ica-mode per-condition --n-jobs 8
+
+    # 全部被试（默认 continuous）
+    uv run scripts/preprocessing.py --ica-mode continuous
+
+    # 查看参数
+    uv run scripts/preprocessing.py --help
+
+``--n-jobs`` 同时影响 continuous 与 per-condition 模式下的 AutoReject。
 """
 
 import argparse
@@ -251,8 +261,8 @@ def prepare_raw(
     return raw, trial_onsets
 
 
-def fit_and_apply_ica(inst, tag: str):
-    """在 inst 的 EEG 上拟合 ICA，用 ICLabel 剔除伪迹后原地应用。"""
+def fit_and_apply_ica(inst, tag: str, apply_inst=None):
+    """在 inst 上拟合 ICA，用 ICLabel 剔除伪迹后应用到 apply_inst（默认 inst）。"""
     prefix = f"[ICA:{tag}]"
     ica = mne.preprocessing.ICA(
         n_components=30,
@@ -274,11 +284,11 @@ def fit_and_apply_ica(inst, tag: str):
     print(f"{prefix} component labels : {dict(Counter(labels))}")
     print(f"{prefix} excluding idx    : {exclude_idx}")
 
-    ica.apply(inst, exclude=exclude_idx)
+    ica.apply(inst if apply_inst is None else apply_inst, exclude=exclude_idx)
 
 
-def clean_continuous_raw(raw):
-    """在固定长度 2 s epoch 上估阈值并拟合 ICA，然后应用到连续 raw。"""
+def clean_continuous_raw(raw, n_jobs: int = 1):
+    """在固定长度 2 s epoch 上用 AutoReject 清洗，ICA 拟合后应用到连续 raw。"""
     fixed_epoch_duration = 2.0
     fixed_events = mne.make_fixed_length_events(
         raw,
@@ -301,15 +311,30 @@ def clean_continuous_raw(raw):
         flat=None,
         verbose=False,
     )
-    reject_threshold = get_rejection_threshold(
-        fixed_epochs, ch_types=["eeg"], verbose=False
-    )
     n_fixed_before = len(fixed_epochs)
-    fixed_epochs.drop_bad(reject=reject_threshold, verbose=False)
-    print(f"[Autoreject] threshold   : {reject_threshold}")
-    print(f"[Autoreject] epochs kept : {len(fixed_epochs)}/{n_fixed_before}")
+    try:
+        auto_reject = AutoReject(n_jobs=n_jobs)
+        fixed_epochs, reject_log = auto_reject.fit_transform(
+            fixed_epochs, return_log=True
+        )
+        dropped = int(reject_log.bad_epochs.sum())
+    except Exception as exc:
+        print(f"[Autoreject] AutoReject 失败（{exc}），回退 get_rejection_threshold")
+        reject_threshold = get_rejection_threshold(
+            fixed_epochs, ch_types=["eeg"], verbose=False
+        )
+        fixed_epochs.drop_bad(reject=reject_threshold, verbose=False)
+        dropped = n_fixed_before - len(fixed_epochs)
 
-    fit_and_apply_ica(raw, tag="continuous")
+    print(
+        f"[Autoreject] epochs kept : {len(fixed_epochs)}/{n_fixed_before} "
+        f"(dropped {dropped})"
+    )
+    if len(fixed_epochs) == 0:
+        raise RuntimeError("固定长度 epoch 全部被 AutoReject 丢弃，无法拟合 ICA")
+
+    # ICA 在清洗后的固定长度 epoch 上拟合，再应用到连续 raw
+    fit_and_apply_ica(fixed_epochs, tag="continuous", apply_inst=raw)
 
     # ICA 之后，用已去伪迹的邻近通道插值 still-bad 通道
     if raw.info["bads"]:
@@ -388,6 +413,7 @@ def convert_edf_to_raw_fif(
     text_path: Path,
     run: str,
     sample_rate: float = 250.0,
+    n_jobs: int = 1,
 ):
     """continuous 模式：连续 raw 清洗后保存 raw fif，并写句子 sidecar。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -397,7 +423,7 @@ def convert_edf_to_raw_fif(
         load_sentences_for_run(run), len(trial_onsets), run
     )
 
-    clean_continuous_raw(raw)
+    clean_continuous_raw(raw, n_jobs=n_jobs)
 
     write_text_sidecar(text_path, trial_onsets, sentences)
     raw.save(output_path, overwrite=True, verbose=False)
@@ -468,7 +494,7 @@ def main():
         "--n-jobs",
         type=int,
         default=1,
-        help="per-condition 模式下 AutoReject 的并行任务数（默认 1）",
+        help="AutoReject 并行任务数（两种模式都生效，默认 1）",
     )
     args = parser.parse_args()
 
@@ -517,6 +543,7 @@ def main():
                     text_path=output_paths[1],
                     run=entities["run"],
                     sample_rate=args.sample_rate,
+                    n_jobs=args.n_jobs,
                 )
             else:
                 convert_edf_to_epoch_fif(
