@@ -4,10 +4,13 @@ pkl 结构：``pickle.load`` 得到一个 list，每个元素是一个试次 dic
 
     {"text": "附近还有其他的酒店吗", "input_features": ndarray(1, 125, 1651)}
 
-``input_features[0]`` 即 (通道数, 采样点数)，单位是 V。pkl 里没有保存通道名，
-通道顺序与原始 EDF 一致，只是去掉了预处理里的 useless_channels
-（``10/11/84/85/110/111/EKG/EMG``）：133 - 8 = 125，最后三个是 VEO / HEO / Trigger。
-所以这里读同被试的 EDF 头，按同样顺序剔除后给纵轴贴通道名。
+``input_features[0]`` 即 (通道数, 采样点数)，单位是 V。
+
+注意：这些 pkl 是数据集原作者用自己的流程处理出来的，不是本项目
+``preprocessing.py`` 的产物，pkl 里也不带通道名 / 采样率等元数据。
+现在按「通道顺序与 EDF 一致、只剔掉原作者脚本里的 useless_channels
+（``10/11/84/85/110/111/EKG/EMG``）」推断：133 - 8 = 125，最后三个是
+VEO / HEO / Trigger。所以这里读同被试的 EDF 头，按同样顺序剔除后给纵轴贴通道名。
 
 用法（run 编号是跨 session 的全局编号，pkl 文件名里没有 ses）::
 
@@ -54,7 +57,7 @@ PKL_PATTERN = re.compile(
     r"^(?P<subject>sub-\d+)_task-(?P<task>[A-Za-z0-9]+)_run-(?P<run>\d+)_eeg\.pkl$"
 )
 
-# 预处理阶段从 EDF 里剔掉的通道（与 preprocessing.py 的 useless_channels 一致）：
+# 原作者流程里剔掉的通道（不是本项目的 preprocessing.py，后者还剔了 VEO/HEO）：
 # pkl 的通道就是 EDF 通道顺序减掉这些，剩下的最后三个依次是 VEO / HEO / Trigger
 USELESS_CHANNELS = ("10", "11", "84", "85", "110", "111", "EKG", "EMG")
 
