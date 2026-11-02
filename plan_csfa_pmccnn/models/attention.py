@@ -58,32 +58,27 @@ class FrequencyAttention(nn.Module):
 
     def forward(self, x):
         B, C, E, T = x.size()
+        in_dtype = x.dtype
         
         # 1. 一维傅里叶变换：只沿时间轴 T 做
         # 电极轴上的"空间频率"没有生理意义，因此不对 E 做 FFT
         # 输入：(B, C, E, T) -> 输出：(B, C, E, T//2 + 1)
-        fft_x = torch.fft.rfft(x, dim=-1, norm='ortho') # (B, C, E, T//2 + 1)
+        # torch.fft 在 CUDA 上不支持 bf16/fp16，这里显式转 float32（也更稳）
+        fft_x = torch.fft.rfft(x.float(), dim=-1, norm='ortho') # (B, C, E, T//2 + 1)
         
-        # 2. 分离幅度和相位
-        amp = torch.abs(fft_x)
-        phase = torch.angle(fft_x)
+        # 2. 对幅度谱做全局池化提取特征 (B, C)
+        pooled_amp = torch.mean(torch.abs(fft_x), dim=(2, 3))
         
-        # 3. 对幅度谱进行全局池化提取特征 (B, C)
-        pooled_amp = torch.mean(amp, dim=(2, 3))
+        # 3. 生成权重 (B, C, 1, 1)
+        weight = self.fc(pooled_amp).view(B, C, 1, 1).float()
         
-        # 4. 生成权重 (B, C, 1, 1)
-        weight = self.fc(pooled_amp).view(B, C, 1, 1)
+        # 4. 对频域信号整体加权！
+        # 只加权幅度 = amp * w * e^{i phase} = w * fft_x（w 为实数），
+        # 因此不需要先拆幅度/相位再 cos/sin 重构，省掉 5 个同尺寸中间张量，
+        # 结果与原实现数学等价（且少一次 angle->cos/sin 的精度损失）。
+        fft_weighted = fft_x * weight
         
-        # 5. 对幅度谱进行加权！
-        amp_weighted = amp * weight
-        
-        # 6. 重构复数频域信号 (利用极坐标转直角坐标)
-        # 注意：这里需要用到 torch.polar 或者 cos/sin 组合
-        real = amp_weighted * torch.cos(phase)
-        imag = amp_weighted * torch.sin(phase)
-        fft_weighted = torch.complex(real, imag)
-        
-        # 7. 逆一维傅里叶变换，回到时间域，用 n=T 保证还原出原始长度
+        # 5. 逆一维傅里叶变换，回到时间域，用 n=T 保证还原出原始长度
         out = torch.fft.irfft(fft_weighted, n=T, dim=-1, norm='ortho')
         
-        return out
+        return out.to(in_dtype)

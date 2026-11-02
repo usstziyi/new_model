@@ -6,8 +6,11 @@
     imagine: pkl 1651 点 -> 首尾裁剪后 1401（默认 500 Hz）
     若用 --target-sfreq 250，则分别为 1126 / 701
 
-默认参数按 CUDA 机器设置（batch=32、lr=2e-3、500 Hz、50 epoch）。
-显存不足时优先降低 --batch-size（如 16），或把 --target-sfreq 设为 250。
+默认参数按 8 GB 显卡设置（bf16 混合精度 + 梯度累积，等效 batch 固定为 32、lr=2e-3、
+500 Hz、50 epoch）。micro-batch 默认 imagine=8（峰值约 3.6 GB）/ reading=4（T 更长，
+峰值约 5.2 GB），再按 --batch-size 自动补足 --accum-steps 到等效 32。
+显存更宽裕时可直接调大 --batch-size 并相应调小 --accum-steps（如 16/2）；
+显存仍不足时优先降低 --batch-size，或把 --target-sfreq 设为 250。
 
 按天划分（每 9 个 run 为一天，共 45 个 run / 5 天）：
 
@@ -160,11 +163,35 @@ def make_eval_loader(dataset, batch_size: int, num_workers: int, pin_memory: boo
     )
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device, max_batches=None):
-    """跑一个 epoch，返回 (平均 loss, 样本数)。"""
+def train_one_epoch(
+    model,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    max_batches=None,
+    accum_steps: int = 1,
+    amp_dtype=None,
+    scaler=None,
+):
+    """跑一个 epoch，返回 (平均 loss, 样本数)。
+
+    用累加 accum_steps 个 micro-batch 的梯度再更新一次参数，等效 batch 不变。
+    """
     model.train()
     total_loss, n_samples = 0.0, 0
+    pending = 0
+    use_amp = amp_dtype is not None
 
+    def step_optimizer():
+        if scaler is not None and scaler.is_enabled():
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+
+    optimizer.zero_grad(set_to_none=True)
     for step, (alpha, beta, labels) in enumerate(loader):
         if max_batches is not None and step >= max_batches:
             break
@@ -172,14 +199,26 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches=Non
         beta = beta.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        optimizer.zero_grad(set_to_none=True)
-        outputs = model(alpha, beta)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+            outputs = model(alpha, beta)
+            loss = criterion(outputs, labels)
+
+        scaled_loss = loss / accum_steps
+        if scaler is not None and scaler.is_enabled():
+            scaler.scale(scaled_loss).backward()
+        else:
+            scaled_loss.backward()
 
         total_loss += loss.item() * labels.size(0)
         n_samples += labels.size(0)
+
+        pending += 1
+        if pending == accum_steps:
+            step_optimizer()
+            pending = 0
+
+    if pending:
+        step_optimizer()
 
     if n_samples == 0:
         raise RuntimeError("训练集为空，检查 --train-days / --max-train-batches")
@@ -187,11 +226,12 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches=Non
 
 
 @torch.no_grad()
-def evaluate(model, loader, criterion, device, num_classes, max_batches=None):
+def evaluate(model, loader, criterion, device, num_classes, max_batches=None, amp_dtype=None):
     """在验证 / 测试集上计算 loss、accuracy、macro-F1、weighted-F1。"""
     model.eval()
     total_loss, n_samples = 0.0, 0
     all_preds, all_targets = [], []
+    use_amp = amp_dtype is not None
 
     for step, (alpha, beta, labels) in enumerate(loader):
         if max_batches is not None and step >= max_batches:
@@ -200,8 +240,9 @@ def evaluate(model, loader, criterion, device, num_classes, max_batches=None):
         beta = beta.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        outputs = model(alpha, beta)
-        loss = criterion(outputs, labels)
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+            outputs = model(alpha, beta)
+            loss = criterion(outputs, labels)
 
         total_loss += loss.item() * labels.size(0)
         n_samples += labels.size(0)
@@ -256,10 +297,13 @@ def report_test(
     class_names: dict[int, str],
     out_dir: Path,
     max_batches=None,
+    amp_dtype=None,
 ):
     """在测试集上评估，打印分类报告并保存混淆矩阵 / 指标。"""
     num_classes = len(class_names)
-    metrics = evaluate(model, loader, criterion, device, num_classes, max_batches)
+    metrics = evaluate(
+        model, loader, criterion, device, num_classes, max_batches, amp_dtype
+    )
     preds, targets = metrics.pop("preds"), metrics.pop("targets")
 
     report = classification_report(
@@ -301,7 +345,19 @@ def parse_args():
     parser.add_argument("--test-days", nargs="+", type=int, default=[5], help="测试用第几天")
     parser.add_argument("--runs-per-day", type=int, default=RUNS_PER_DAY, help="每天 run 数")
     parser.add_argument("--epochs", type=int, default=50, help="最大 epoch 数")
-    parser.add_argument("--batch-size", type=int, default=32, help="batch size")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="单次前向的 micro-batch size，默认 imagine=8 / reading=4（T 更长，峰值显存约 1.6 倍）",
+    )
+    parser.add_argument(
+        "--accum-steps",
+        type=int,
+        default=None,
+        help="梯度累积步数，默认按 --batch-size 补足到等效 batch=32",
+    )
+    parser.add_argument("--no-amp", action="store_true", help="关闭 CUDA 混合精度（默认开启）")
     parser.add_argument("--lr", type=float, default=2e-3, help="Adam 学习率")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="Adam weight decay")
     parser.add_argument("--patience", type=int, default=10, help="验证集 macro-F1 无提升的容忍 epoch 数")
@@ -323,6 +379,13 @@ def parse_args():
 def main():
     args = parse_args()
     set_seed(args.seed)
+
+    # micro-batch 按任务长度取默认值（imagine 1401 点、reading 2251 点），
+    # 再用梯度累积把等效 batch 补回 32，保证与论文设置的一致性。
+    if args.batch_size is None:
+        args.batch_size = 8 if args.task == "imagine" else 4
+    if args.accum_steps is None:
+        args.accum_steps = max(1, 32 // args.batch_size)
 
     device = torch.device(
         args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -371,6 +434,21 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[Model] CSFAPMCCNN | classes={num_classes} | params={n_params:,}")
 
+    # 混合精度：Ampere 及更新架构用 bf16（无需 GradScaler），否则退回 fp16 + GradScaler
+    amp_dtype = None
+    scaler = None
+    if device.type == "cuda" and not args.no_amp:
+        if torch.cuda.is_bf16_supported():
+            amp_dtype = torch.bfloat16
+        else:
+            amp_dtype = torch.float16
+            scaler = torch.amp.GradScaler("cuda")
+    print(
+        f"[Precision] {amp_dtype or torch.float32} | "
+        f"micro_batch={args.batch_size} accum={args.accum_steps} "
+        f"effective_batch={args.batch_size * args.accum_steps}"
+    )
+
     criterion = MarginLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -389,10 +467,24 @@ def main():
     for epoch in range(1, args.epochs + 1):
         started = time.time()
         train_loss, train_n = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, args.max_train_batches
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            args.max_train_batches,
+            args.accum_steps,
+            amp_dtype,
+            scaler,
         )
         val_metrics = evaluate(
-            model, val_loader, criterion, device, num_classes, args.max_val_batches
+            model,
+            val_loader,
+            criterion,
+            device,
+            num_classes,
+            args.max_val_batches,
+            amp_dtype,
         )
         scheduler.step(val_metrics["macro_f1"])
 
@@ -438,7 +530,7 @@ def main():
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state"])
     metrics = report_test(
-        model, test_loader, criterion, device, class_names, out_dir, args.max_test_batches
+        model, test_loader, criterion, device, class_names, out_dir, args.max_test_batches, amp_dtype
     )
     print(f"[Done] test acc={metrics['accuracy']:.4f} macro_f1={metrics['macro_f1']:.4f}")
 
