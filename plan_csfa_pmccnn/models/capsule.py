@@ -50,11 +50,12 @@ class DigitCaps(nn.Module):
         self.num_routing = num_routing # 路由迭代次数
         
         # 变换矩阵 W: (1, in_caps, num_caps, out_dim, in_dim)
-        # 标准 CapsNet 有上千个初级胶囊，而本模型只有 8 个（in_caps=8），
-        # 动态路由的耦合系数又要在 39 个类别上归一化，投票被稀释得很厉害。
-        # 若沿用 0.01 / 0.1 的初始化，分类胶囊模长会停在 1e-4 ~ 1e-3，
-        # Margin Loss 几乎没有梯度；因此这里用更大的初始化尺度。
-        self.W = nn.Parameter(torch.randn(1, in_caps, num_caps, out_dim, in_dim) * 2.0)
+        # 高层胶囊收到的票数随 in_caps 线性增长，u_hat 的累加幅度随 sqrt(in_caps) 增长。
+        # 以 in_caps=72（3×3 网格 × 8 个胶囊）时验证过的尺度 1.0 为基准，
+        # 其他胶囊数按 1/sqrt(in_caps) 自动缩放（如 144 个胶囊时约 0.707），
+        # 保持 s_j 的初始量级一致，避免 squash 后整体饱和到 1 或压得过小。
+        init_scale = (72.0 / in_caps) ** 0.5
+        self.W = nn.Parameter(torch.randn(1, in_caps, num_caps, out_dim, in_dim) * init_scale)
 
     def forward(self, x):
         # x: (B, in_caps, in_dim)
