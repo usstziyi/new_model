@@ -3,7 +3,7 @@
 流程：
     <subject>_<task>.csv 的 sentence 列
         ↓  按 --types 选类别并合并成块（可选）
-    LaBSETextEncoder（冻结，见 baseline/text_encoder.py）
+    LaBSETextEncoder（冻结，见 plan_csfa_pmccnn/models/text_encoder.py）
         ↓
     (N, 768)，已 L2 归一化
         ↓                        ↘
@@ -48,10 +48,13 @@ import seaborn as sns
 from matplotlib import font_manager
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+MODEL_DIR = REPO_ROOT / "plan_csfa_pmccnn"
+# models 包位于 plan_csfa_pmccnn 下，需把该目录加入 sys.path 才能按包名导入
+for path in (REPO_ROOT, MODEL_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from baseline.text_encoder import LaBSETextEncoder  # noqa: E402
+from models.text_encoder import LaBSETextEncoder  # noqa: E402
 
 DEFAULT_CSV_DIR = REPO_ROOT / "datasets" / "preprocessed"
 DEFAULT_OUT_DIR = REPO_ROOT / "figures"

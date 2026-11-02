@@ -5,7 +5,20 @@ from .attention import ChannelAttention, SpatialAttention, FrequencyAttention
 from .capsule import PrimaryCaps, DigitCaps
 
 class CSFAPMCCNN(nn.Module):
-    def __init__(self, in_channels=1, num_classes=2):
+    """CSFA-PMCCNN：双分支（α / β）多尺度卷积 + 注意力 + 胶囊分类。
+
+    真实 EEG 输入:
+        x_alpha / x_beta: ``(B, C, E, T)``，``C = 1``（特征通道维），
+        ``E = 122``（电极数），``T`` 为时间采样点数（随任务而定）。
+    输出:
+        ``(B, num_classes)``，每个类别的胶囊模长，可直接交给 Margin Loss。
+
+    Args:
+        in_channels: 输入特征通道数，真实 EEG 用 ``1``。
+        num_classes: 语义类别数，ds005170 为 ``39``。
+    """
+
+    def __init__(self, in_channels=1, num_classes=39):
         super(CSFAPMCCNN, self).__init__()
         
         # ================= 上分支 (α) =================
@@ -37,6 +50,10 @@ class CSFAPMCCNN(nn.Module):
         # ================= 后端分类 =================
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc1 = nn.Linear(256, 128)
+        # 真实 EEG 经三级卷积 / 注意力 / 池化后，融合特征幅度很低（约 1e-2）。
+        # 若直接送入初级胶囊，两层 squash 会把范数压到 1e-10，Margin Loss 失去梯度。
+        # 这里先做 LayerNorm，把每个样本的特征标准化到 O(1)。
+        self.fc_norm = nn.LayerNorm(128)
         
         # 胶囊层 (假设把 128 维特征作为 8 个 16 维的胶囊输入)
         self.primary_caps = PrimaryCaps(in_channels=128, out_capsules=8, capsule_dim=16, kernel_size=1, stride=1)
@@ -67,7 +84,7 @@ class CSFAPMCCNN(nn.Module):
         fused = a + b
         out = self.global_pool(fused)
         out = torch.flatten(out, 1)
-        out = torch.relu(self.fc1(out))
+        out = self.fc_norm(torch.relu(self.fc1(out)))
         
         # ---------------- 胶囊层处理 ----------------
         # 此时 out 形状为 (B, 128)，为了输入初级胶囊(需要4D张量)，转成 (B, 128, 1, 1)
