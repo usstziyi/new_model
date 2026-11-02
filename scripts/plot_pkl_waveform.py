@@ -133,7 +133,10 @@ def load_trial(pkl_file: Path, trial: int) -> tuple[np.ndarray, str, int]:
     if not items:
         raise RuntimeError(f"pkl 为空: {pkl_file}")
     if not -len(items) <= trial < len(items):
-        raise IndexError(f"trial={trial} 超出范围 [-{len(items)}, {len(items) - 1}]")
+        raise IndexError(
+            f"{pkl_file.name} 只有 {len(items)} 个试次，trial={trial} 超出范围 "
+            f"[-{len(items)}, {len(items) - 1}]"
+        )
 
     item = items[trial]
     features = np.asarray(item["input_features"])
@@ -224,7 +227,11 @@ def main() -> None:
     run = normalize_run(args.run)
 
     pkl_file = find_pkl(subject, args.task, run)
-    features, text, n_trials = load_trial(pkl_file, args.trial)
+    try:
+        features, text, n_trials = load_trial(pkl_file, args.trial)
+    except IndexError as exc:
+        # 试次越界属于参数错误，转成 argparse 的报错，不打 traceback
+        parser.error(str(exc))
     trial_index = args.trial if args.trial >= 0 else n_trials + args.trial
 
     n_channels_total, n_samples = features.shape
