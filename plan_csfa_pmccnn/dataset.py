@@ -300,15 +300,15 @@ def main() -> None:
 
     first = None
     for csv_path in sorted(CSV_ROOT.glob("*.csv")):
-        subject, label = csv_path.stem.split("_", 1)
-        dataset = ChiscoEEGDataset(subject, label)
+        subject, task = csv_path.stem.split("_", 1)
+        dataset = ChiscoEEGDataset(subject, task)
         first = first or dataset
 
         alpha, beta, target = dataset[0]
         print(
-            f"{subject} {label:<8} {len(dataset):>5} 条 | "
+            f"{subject} {task:<8} {len(dataset):>5} 条 | "
             f"alpha {tuple(alpha.shape)} beta {tuple(beta.shape)} | "
-            f"label={int(target)} {class_names.get(int(target), '')}"
+            f"task={int(target)} {class_names.get(int(target), '')}"
         )
 
     from torch.utils.data import DataLoader
@@ -316,11 +316,11 @@ def main() -> None:
     loader = DataLoader(first, batch_size=4, sampler=RunBlockSampler(
         [int(row["run"]) for row in first.rows], shuffle=True, seed=0
     ))
-    alpha, beta, labels = next(iter(loader))
+    alpha, beta, tasks = next(iter(loader))
     print(f"\n{first.subject} {first.task} 取一个 batch (batch_size=4):")
     print(f"  alpha {tuple(alpha.shape)} {alpha.dtype}")
     print(f"  beta  {tuple(beta.shape)} {beta.dtype}")
-    print(f"  labels {labels.tolist()}")
+    print(f"  tasks {tasks.tolist()}")
 
 
 if __name__ == "__main__":
