@@ -213,18 +213,19 @@ def prepare_raw(
         trial_onsets: 每个 65380 试次起点的秒级 onset
     """
     raw = mne.io.read_raw_edf(edf_file, preload=True, verbose=False)
-    custom_montage = mne.channels.read_custom_montage(MONTAGE_FILE)
-    raw.set_montage(custom_montage, on_missing="raise", verbose=False)
-    raw.drop_channels(MONTAGE_EXCLUDE_CHANNELS)
 
-    # 事件在重采样前从 Trigger 通道提取；换算成秒后与采样率无关
+    # 事件在设置 montage 前从 Trigger 通道提取；换算成秒后与采样率无关
     events = mne.find_events(raw, stim_channel=STIM_CHANNEL, verbose=False)
     trial_events = events[events[:, 2] == TRIAL_EVENT_CODE]
     trial_onsets = trial_events[:, 0] / raw.info["sfreq"]
     print(f"[Events] trial events ({TRIAL_EVENT_CODE}): {len(trial_onsets)}")
 
-    # 后续不再需要 Trigger；移除后避免混入 epoch / ICA
+    # 先移除 Trigger 和无用通道，再设置 montage，避免给 stim 通道设位置的提示
     raw.drop_channels([STIM_CHANNEL])
+    raw.drop_channels(MONTAGE_EXCLUDE_CHANNELS)
+
+    custom_montage = mne.channels.read_custom_montage(MONTAGE_FILE)
+    raw.set_montage(custom_montage, on_missing="raise", verbose=False)
 
     if sample_rate is not None and raw.info["sfreq"] != sample_rate:
         raw.resample(sample_rate, verbose=False)
