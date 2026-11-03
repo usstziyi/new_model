@@ -113,7 +113,7 @@ class CSFAPMCCNN(nn.Module):
         out = self.spatial_pool(fused)                 # (B, 256, g, g)
         out = torch.relu(self.fc1(out))                # (B, 128, g, g)
         # LayerNorm 需要把特征维放到最后： (B, g, g, 128)，逐空间位置归一化
-        out = self.fc_norm(out.permute(0, 2, 3, 1))
+        out = self.fc_norm(out.permute(0, 2, 3, 1))    # (B, g, g, 128)
         out = out.permute(0, 3, 1, 2).contiguous()     # (B, 128, g, g)
 
         # ---------------- 胶囊层处理 ----------------
