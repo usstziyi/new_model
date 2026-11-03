@@ -90,6 +90,27 @@ TASK_ALIASES = {
 
 _FILE_PATTERN = re.compile(r"_task-(?P<task>[a-z]+)_run-(?P<run>\d+)_eeg\.pkl$")
 
+channels_64 = [
+    # 额极层（最前）
+    "FP1", "FPz", "Fp2",
+    # 前额层
+    "AF3", "AFz", "AF4",
+    # 额区层
+    "F7", "F5", "F3", "F1", "Fz", "F2", "F4", "F6", "F8",
+    # 额中央层
+    "FT9", "FT7", "FC5", "FC3", "FC1", "FCz", "FC2", "FC4", "FC6", "FT8", "FT10",
+    # 中央-颞层
+    "FTT9h", "T7", "C5", "C3", "C1", "Cz", "C2", "C4", "C6", "T8",
+    # 中央顶-颞后层
+    "TTP7h", "TP7", "CPP5h", "CP3", "CP1", "CPPz", "CP2", "CP4", "CPP6h", "TP8", "TTP8h",
+    # 顶区层
+    "P7", "P5", "P3", "POz", "P4", "P6", "P8",
+    # 顶枕层
+    "PPO7", "PO3", "POO3", "Oz", "POO4", "PO4", "PPO8",
+    # 枕区层（最后）
+    "OI1", "Iz", "OI2",
+]
+
 
 def load_class_names(path: Path = CLASSNUMBER) -> dict[int, str]:
     """读取 ``classnumber.json``，返回 ``{type_number: 中文类别名}``。"""
