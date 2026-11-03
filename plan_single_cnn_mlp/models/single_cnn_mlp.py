@@ -6,13 +6,13 @@ from .ms_conv import MultiScaleConvLayer
 
 
 class SingleBranchCNNMLP(nn.Module):
-    """单分支 EEG 语义分类模型（多尺度卷积 + 注意力 + 普通卷积 + MLP）。
+    """单分支 EEG 语义分类模型（多尺度卷积 + 注意力 + GAP + MLP）。
 
     与 CSFA-PMCCNN 的区别：
 
     - 不再分 α / β 两条分支：各频段在通道维拼接成一个输入，只走一条卷积主干；
     - 去掉分支融合、LayerNorm、初级胶囊与动态路由；
-    - 分类头换成「普通 3×3 卷积 -> 全局平均池化 -> 两层 MLP」，输出 logits，
+    - 分类头换成「全局平均池化 -> 两层 MLP」，输出 logits，
       配合 ``nn.CrossEntropyLoss``。
 
     Args:
@@ -44,12 +44,7 @@ class SingleBranchCNNMLP(nn.Module):
         self.fa = FrequencyAttention(256)
         self.pool3 = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
 
-        # ================= 普通卷积 + MLP 分类头 =================
-        self.refine = nn.Sequential(
-            nn.Conv2d(256, 256, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-        )
+        # ================= GAP + MLP 分类头 =================
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Flatten(),
@@ -65,6 +60,5 @@ class SingleBranchCNNMLP(nn.Module):
         x = self.pool2(self.sa(self.ms_conv2(x)))
         x = self.pool3(self.fa(self.ms_conv3(x)))
 
-        x = self.refine(x)          # (B, 256, E', T')
         x = self.gap(x)             # (B, 256, 1, 1)
         return self.classifier(x)   # (B, num_classes)
