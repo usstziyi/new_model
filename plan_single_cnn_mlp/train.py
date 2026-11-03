@@ -166,6 +166,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches=Non
     for step, (inputs, labels) in enumerate(loader):
         if max_batches is not None and step >= max_batches:
             break
+        step_started = time.time()
         inputs = inputs.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
@@ -175,8 +176,16 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches=Non
         loss.backward()
         optimizer.step()
 
-        total_loss += loss.item() * labels.size(0)
+        loss_value = loss.item()
+        total_loss += loss_value * labels.size(0)
         n_samples += labels.size(0)
+
+        print(
+            f"    [step {step + 1}] loss={loss_value:.4f} batch={labels.size(0)} "
+            f"samples={n_samples} lr={optimizer.param_groups[0]['lr']:.2e} "
+            f"({time.time() - step_started:.2f}s)",
+            flush=True,
+        )
 
     if n_samples == 0:
         raise RuntimeError("训练集为空，检查 --train-days / --max-train-batches")
