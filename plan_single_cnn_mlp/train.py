@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import random
 import time
@@ -158,34 +159,80 @@ def make_eval_loader(dataset, batch_size: int, num_workers: int, pin_memory: boo
     )
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device, max_batches=None):
-    """跑一个 epoch，返回 (平均 loss, 样本数)。"""
+def train_one_epoch(
+    model,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    max_batches=None,
+    step_log_path: Path | None = None,
+    epoch: int = 1,
+):
+    """跑一个 epoch，返回 (平均 loss, 样本数)。
+
+    ``step_log_path`` 不为空时，把每个 step 的记录增量追加到该 CSV
+    （文件已存在则接着写，不存在则先写表头），每写一行立即 flush。
+    """
     model.train()
     total_loss, n_samples = 0.0, 0
 
-    for step, (inputs, labels) in enumerate(loader):
-        if max_batches is not None and step >= max_batches:
-            break
-        step_started = time.time()
-        inputs = inputs.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
-
-        optimizer.zero_grad(set_to_none=True)
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-
-        loss_value = loss.item()
-        total_loss += loss_value * labels.size(0)
-        n_samples += labels.size(0)
-
-        print(
-            f"    [step {step + 1}] loss={loss_value:.4f} batch={labels.size(0)} "
-            f"samples={n_samples} lr={optimizer.param_groups[0]['lr']:.2e} "
-            f"({time.time() - step_started:.2f}s)",
-            flush=True,
+    log_handle = None
+    log_writer = None
+    if step_log_path is not None:
+        step_log_path.parent.mkdir(parents=True, exist_ok=True)
+        new_file = not step_log_path.exists() or step_log_path.stat().st_size == 0
+        log_handle = step_log_path.open("a", newline="", encoding="utf-8")
+        log_writer = csv.DictWriter(
+            log_handle,
+            fieldnames=["epoch", "step", "loss", "batch", "samples", "lr", "seconds"],
         )
+        if new_file:
+            log_writer.writeheader()
+            log_handle.flush()
+
+    try:
+        for step, (inputs, labels) in enumerate(loader):
+            if max_batches is not None and step >= max_batches:
+                break
+            step_started = time.time()
+            inputs = inputs.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
+
+            optimizer.zero_grad(set_to_none=True)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            loss_value = loss.item()
+            total_loss += loss_value * labels.size(0)
+            n_samples += labels.size(0)
+            elapsed = time.time() - step_started
+
+            print(
+                f"    [step {step + 1}] loss={loss_value:.4f} batch={labels.size(0)} "
+                f"samples={n_samples} lr={optimizer.param_groups[0]['lr']:.2e} "
+                f"({elapsed:.2f}s)",
+                flush=True,
+            )
+
+            if log_writer is not None:
+                log_writer.writerow(
+                    {
+                        "epoch": epoch,
+                        "step": step + 1,
+                        "loss": f"{loss_value:.6f}",
+                        "batch": labels.size(0),
+                        "samples": n_samples,
+                        "lr": f"{optimizer.param_groups[0]['lr']:.6e}",
+                        "seconds": f"{elapsed:.3f}",
+                    }
+                )
+                log_handle.flush()
+    finally:
+        if log_handle is not None:
+            log_handle.close()
 
     if n_samples == 0:
         raise RuntimeError("训练集为空，检查 --train-days / --max-train-batches")
@@ -416,7 +463,14 @@ def main():
     for epoch in range(1, args.epochs + 1):
         started = time.time()
         train_loss, train_n = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, args.max_train_batches
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            args.max_train_batches,
+            step_log_path=out_dir / "step_log.csv",
+            epoch=epoch,
         )
         val_metrics = evaluate(
             model, val_loader, criterion, device, num_classes, args.max_val_batches
