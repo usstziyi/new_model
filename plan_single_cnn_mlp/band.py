@@ -23,6 +23,16 @@ def butter_bandpass(low_freq, high_freq, fs=FS, order=ORDER):
     return b, a
 
 
+def _notch(data, fs=FS):
+    """对 50 / 100 Hz 工频做零相位陷波，返回新数组。"""
+    data = np.asarray(data, dtype=np.float64)
+    for notch_f in [50.0, 100.0]:
+        if notch_f < (fs / 2):
+            b_notch, a_notch = iirnotch(notch_f, 30, fs)
+            data = filtfilt(b_notch, a_notch, data, axis=-1)
+    return data
+
+
 def bandpass_filter(data, low_freq, high_freq, fs=FS, order=ORDER, coeffs=None):
     """对多通道 EEG 沿时间轴（最后一维）做零相位带通滤波。
 
@@ -34,10 +44,7 @@ def bandpass_filter(data, low_freq, high_freq, fs=FS, order=ORDER, coeffs=None):
     
     # 针对包含高频的频段（Gamma），先剔除工频干扰
     if high_freq > 45:
-        for notch_f in [50.0, 100.0]:
-            if notch_f < (fs / 2):
-                b_notch, a_notch = iirnotch(notch_f, 30, fs)
-                data = filtfilt(b_notch, a_notch, data, axis=-1)
+        data = _notch(data, fs)
                 
     b, a = coeffs if coeffs is not None else butter_bandpass(low_freq, high_freq, fs, order)
     return filtfilt(b, a, data, axis=-1)
@@ -49,7 +56,11 @@ def _trim(x, margin):
 
 
 def filter_trial(raw_eeg, fs=FS, bands=BANDS, order=ORDER, margin_sec=MARGIN_SEC, coeffs=None):
-    """处理单个 trial：(n_channels, n_times) -> {频段名: 滤波结果}，raw 同步裁剪保证长度一致。"""
+    """处理单个 trial：(n_channels, n_times) -> {频段名: 滤波结果}。
+
+    ``raw`` 不做带通滤波，但会先去掉 50 / 100 Hz 工频，再统一裁剪首尾，
+    保证长度与其他频段一致。
+    """
     raw = np.asarray(raw_eeg, dtype=np.float64)
     margin = int(margin_sec * fs)
     
@@ -58,7 +69,7 @@ def filter_trial(raw_eeg, fs=FS, bands=BANDS, order=ORDER, margin_sec=MARGIN_SEC
     if 2 * margin >= raw.shape[-1]:
         raise ValueError(f"数据太短（{raw.shape[-1]} 点），无法裁剪首尾各 {margin} 点")
 
-    trial = {"raw": _trim(raw, margin)}
+    trial = {"raw": _trim(_notch(raw, fs), margin)}
     for name, (low, high) in bands.items():
         filtered = bandpass_filter(
             raw, low, high, fs, order, coeffs=None if coeffs is None else coeffs[name]

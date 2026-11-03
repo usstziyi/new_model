@@ -21,7 +21,9 @@
 用法::
 
     # 想象任务，默认 α+β 双通道输入，按 80/20 划分 run
-    uv run plan_single_cnn_mlp/train.py --task imagine
+    uv run plan_single_cnn_mlp/train.py --task imagine --no-ce --bands raw
+
+    uv run plan_single_cnn_mlp/train.py --task imagine --no-ce --bands alpha beta gamma
 
     # 严格单频段（单通道）输入
     uv run plan_single_cnn_mlp/train.py --task imagine --bands alpha
