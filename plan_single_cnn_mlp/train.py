@@ -6,7 +6,7 @@
 - 去掉融合后端与胶囊层，分类头为「GAP -> MLP」；
 - EEG encoder 额外投影到 768 维，与冻结的 LaBSE 句向量做对比对齐：
   最终目标 ``loss = CE(logits, y) + align_weight * CE(z_eeg @ z_text^T / tau, y)``，
-  两项都用 ``nn.CrossEntropyLoss``。
+  两项都用 ``nn.CrossEntropyLoss``；``--no-ce`` 时去掉第一项，只用对比损失训练。
 
 文本侧：每个试次使用 CSV 里它自己的 ``sentence``，LaBSE 只在第一次遇到该句时
 编码并缓存，之后直接查表。train 与 imagine 的试次长度不同，必须分别训练。
@@ -58,6 +58,7 @@ from torch.utils.data import ConcatDataset, DataLoader
 from dataset import (
     CSV_ROOT,
     DEFAULT_BANDS,
+    RAW_BAND,
     ChiscoEEGDataset,
     RunBlockSampler,
     list_runs,
@@ -226,10 +227,12 @@ def train_one_epoch(
     max_batches=None,
     step_log_path: Path | None = None,
     epoch: int = 1,
+    use_ce: bool = True,
 ):
     """跑一个 epoch，返回 (总 loss, 分类 loss, 对齐 loss, 样本数)。
 
-    ``loss = CE(logits, y) + align_weight * InfoNCE(z_eeg, z_text)``。
+    ``use_ce=True`` 时 ``loss = CE(logits, y) + align_weight * InfoNCE``；
+    ``use_ce=False`` 时只保留对比损失 ``loss = InfoNCE``。
     ``step_log_path`` 不为空时，把每个 step 的记录增量追加到该 CSV
     （文件已存在则接着写，不存在则先写表头），每写一行立即 flush。
     """
@@ -270,24 +273,30 @@ def train_one_epoch(
 
             optimizer.zero_grad(set_to_none=True)
             outputs, z_eeg = model.forward_with_embedding(inputs)
-            loss_cls = criterion(outputs, labels)
             loss_align = text_contrastive_loss(z_eeg, sentences, bank, temperature)
-            loss = loss_cls + align_weight * loss_align
+            if use_ce:
+                loss_cls = criterion(outputs, labels)
+                loss = loss_cls + align_weight * loss_align
+            else:
+                # 只剩对比损失时 align_weight 只是对梯度的常数缩放，直接取 1
+                loss_cls = None
+                loss = loss_align
             loss.backward()
             optimizer.step()
 
             loss_value = loss.item()
-            cls_value = loss_cls.item()
+            cls_value = loss_cls.item() if loss_cls is not None else 0.0
             align_value = loss_align.item()
             total_loss += loss_value * labels.size(0)
             total_cls += cls_value * labels.size(0)
             total_align += align_value * labels.size(0)
             n_samples += labels.size(0)
             elapsed = time.time() - step_started
+            cls_text = f"cls={cls_value:.4f}" if use_ce else "cls=off"
 
             print(
                 f"    [step {step + 1}] loss={loss_value:.4f} "
-                f"cls={cls_value:.4f} align={align_value:.4f} batch={labels.size(0)} "
+                f"{cls_text} align={align_value:.4f} batch={labels.size(0)} "
                 f"samples={n_samples} lr={optimizer.param_groups[0]['lr']:.2e} "
                 f"({elapsed:.2f}s)",
                 flush=True,
@@ -457,7 +466,8 @@ def parse_args():
     )
     parser.add_argument("--task", required=True, choices=("reading", "imagine"), help="任务")
     parser.add_argument("--subjects", nargs="+", default=None, help="被试，默认自动发现")
-    parser.add_argument("--bands", nargs="+", default=list(DEFAULT_BANDS), choices=("alpha", "beta", "gamma"), help="输入频段，按顺序在通道维拼接；默认 alpha beta（2 通道）")
+    parser.add_argument("--bands", nargs="+", default=list(DEFAULT_BANDS), choices=("alpha", "beta", "gamma", RAW_BAND), help="输入频段，按顺序在通道维拼接；默认 alpha beta（2 通道）；raw 表示未滤波原始 EEG")
+    parser.add_argument("--ce", action=argparse.BooleanOptionalAction, default=True, help="是否在训练损失里加入分类交叉熵；--no-ce 表示只用 EEG-文本对比损失（默认开启）")
     parser.add_argument("--text-model", default="sentence-transformers/LaBSE", help="LaBSE 模型名或本地路径")
     parser.add_argument("--align-weight", type=float, default=0.5, help="EEG-文本对比损失权重（默认 0.5）")
     parser.add_argument("--temperature", type=float, default=0.07, help="对比损失温度 tau（默认 0.07）")
@@ -563,9 +573,14 @@ def main():
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=max(1, args.patience // 3)
     )
+    objective = (
+        f"CE_cls + {args.align_weight:g} * InfoNCE"
+        if args.ce
+        else "InfoNCE（无 CE_cls，align_weight 不生效）"
+    )
     print(
-        f"[Objective] CE_cls + {args.align_weight:g} * InfoNCE "
-        f"(tau={args.temperature:g}, 文本=逐句真实句子)"
+        f"[Objective] {objective} "
+        f"(tau={args.temperature:g}, 文本=逐句真实句子, CE={'on' if args.ce else 'off'})"
     )
 
     run_name = args.run_name or f"{args.task}_{datetime.now():%Y%m%d_%H%M%S}"
@@ -591,6 +606,7 @@ def main():
             args.max_train_batches,
             step_log_path=out_dir / "step_log.csv",
             epoch=epoch,
+            use_ce=args.ce,
         )
         val_metrics = evaluate(
             model, val_loader, criterion, device, num_classes, args.max_val_batches
@@ -615,7 +631,9 @@ def main():
 
         print(
             f"[Epoch {epoch:02d}/{args.epochs}] "
-            f"train_loss={train_loss:.4f} (cls={train_cls:.4f} align={train_align:.4f}) "
+            f"train_loss={train_loss:.4f} "
+            f"({'cls=' + format(train_cls, '.4f') if args.ce else 'cls=off'} "
+            f"align={train_align:.4f}) "
             f"val_loss={val_metrics['loss']:.4f} "
             f"val_acc={val_metrics['accuracy']:.4f} val_macro_f1={val_metrics['macro_f1']:.4f} "
             f"lr={row['lr']:.2e} ({row['seconds']:.1f}s)"

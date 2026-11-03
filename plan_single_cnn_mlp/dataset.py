@@ -17,7 +17,9 @@
 
 - ``x``：``torch.float32``，``(len(bands), 122, T)``，单位 µV（可选 z-score）。
   默认 ``bands=("alpha", "beta")`` 时为 ``(2, 122, T)``；只用一个频段时为
-  ``(1, 122, T)``。
+  ``(1, 122, T)``。``bands`` 里可包含特殊名 ``"raw"``，表示不做带通滤波的原始
+  EEG（仅首尾裁剪，长度与其他频段一致），例如 ``("raw",)`` 或
+  ``("raw", "alpha")``。
 - ``label``：``torch.long``，句子语义类别 ``type_number``。
 - ``sentence``：``str``，CSV 里该试次对应句子的原文。
 
@@ -75,6 +77,8 @@ N_EEG_CHANNELS = 122
 VOLT_TO_MICROVOLT = 1e6
 # 单分支模型的默认输入频段，在通道维拼接
 DEFAULT_BANDS = ("alpha", "beta")
+# 特殊频段名：不做带通滤波的原始 EEG（仅首尾裁剪，长度与其他频段一致）
+RAW_BAND = "raw"
 # CSV 里作为分类标签的列
 LABEL_COLUMN = "type_number"
 
@@ -111,7 +115,8 @@ class ChiscoEEGDataset(Dataset):
         task: ``reading`` / ``imagine``。
         runs: 只保留这些 run（例如训练集 ``range(1, 28)``）；``None`` 表示全部。
         bands: 输入使用的频段及拼接顺序，默认 ``("alpha", "beta")``（2 通道输入）；
-            传 ``("alpha",)`` 即严格单频段单通道。
+            传 ``("alpha",)`` 即严格单频段单通道；也可传特殊名 ``"raw"``，
+            表示返回未做带通滤波的原始 EEG（仍按 ``margin_sec`` 首尾裁剪）。
         target_sfreq: 返回数据的采样率，默认 500 Hz（不降采样）；设为 250 Hz
             可把时间长度减半，显著降低显存与训练耗时。
         normalize: 是否对每个试次的每条通道做 z-score（默认 ``True``），
@@ -147,9 +152,9 @@ class ChiscoEEGDataset(Dataset):
         bands = tuple(bands)
         if not bands:
             raise ValueError("bands 不能为空")
-        unknown = [name for name in bands if name not in BANDS]
+        unknown = [name for name in bands if name != RAW_BAND and name not in BANDS]
         if unknown:
-            raise ValueError(f"未知频段 {unknown}，可选 {list(BANDS)}")
+            raise ValueError(f"未知频段 {unknown}，可选 {[*BANDS, RAW_BAND]}")
 
         if target_sfreq <= 0 or target_sfreq > SFREQ:
             raise ValueError(f"target_sfreq 需在 (0, {SFREQ}] 内，收到 {target_sfreq}")
@@ -195,7 +200,7 @@ class ChiscoEEGDataset(Dataset):
             if match is not None:
                 self._pkl_paths[int(match["run"])] = path
 
-        self._bands = {name: BANDS[name] for name in bands}
+        self._bands = {name: BANDS[name] for name in bands if name != RAW_BAND}
         self._coeffs = {
             name: butter_bandpass(low, high, SFREQ, ORDER)
             for name, (low, high) in self._bands.items()
