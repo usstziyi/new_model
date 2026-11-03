@@ -6,7 +6,7 @@
 - 去掉融合后端与胶囊层，分类头为「普通 3×3 卷积 -> GAP -> MLP」；
 - 损失函数为交叉熵 ``nn.CrossEntropyLoss``。
 
-任务（reading / imagine）的试次长度不同，必须分别训练：
+# 想象任务（imagine）的试次长度不同，必须分别训练：
 
     reading: pkl 2501 点 -> 首尾裁剪后 2251（默认 500 Hz）
     imagine: pkl 1651 点 -> 首尾裁剪后 1401（默认 500 Hz）
@@ -17,11 +17,11 @@
 
 用法::
 
-    # 阅读任务，默认 α+β 双通道输入，按 80/20 划分 run
-    uv run plan_single_cnn_mlp/train.py --task reading
+    # 想象任务，默认 α+β 双通道输入，按 80/20 划分 run
+    uv run plan_single_cnn_mlp/train.py --task imagine
 
     # 严格单频段（单通道）输入
-    uv run plan_single_cnn_mlp/train.py --task reading --bands alpha
+    uv run plan_single_cnn_mlp/train.py --task imagine --bands alpha
 
     # 想象任务，限制 epoch 与 batch 数（快速试跑）
     uv run plan_single_cnn_mlp/train.py --task imagine --epochs 5 \

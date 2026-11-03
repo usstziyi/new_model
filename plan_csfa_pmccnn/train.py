@@ -20,8 +20,8 @@
 
 用法::
 
-    # 阅读任务
-    uv run plan_csfa_pmccnn/train.py --task reading
+    # 想象任务
+    uv run plan_csfa_pmccnn/train.py --task imagine
 
     # 想象任务，限制 epoch 与 batch 数（快速试跑）
     uv run plan_csfa_pmccnn/train.py --task imagine --epochs 5 \
