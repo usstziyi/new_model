@@ -65,6 +65,7 @@ def main():
     model = SingleBranchCNNMLP(
         in_channels=checkpoint.get("in_channels", len(bands)),
         num_classes=num_classes,
+        embed_dim=checkpoint.get("embed_dim", 768),
     )
     model.load_state_dict(checkpoint["model_state"])
     model.to(device)

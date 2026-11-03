@@ -5,15 +5,19 @@ plan_single_cnn_mlp/
 改动：
     1. 单分支：α/β 频段在通道维拼接后只走一条卷积主干（--bands 可指定）
     2. 去掉分支融合后端、LayerNorm、初级胶囊与动态路由
-    3. 分类头：普通 3×3 卷积 -> 全局平均池化 -> 两层 MLP
-    4. 损失函数：交叉熵 CrossEntropyLoss
+    3. EEG encoder：卷积主干 -> GAP -> 两层 MLP 分类头
+    4. EEG-文本对齐：GAP 特征经 768 维线性投影 + L2 归一化，与冻结的 LaBSE
+       句向量（每句真实 sentence）对齐
+    5. 最终目标：CE_cls + align_weight * InfoNCE，两项都用 CrossEntropyLoss
+       （默认 align_weight=0.5、temperature=0.07）
 
 目录结构：
     models/
         __init__.py
         ms_conv.py             # 多尺度卷积（与 CSFA-PMCCNN 相同）
         attention.py           # 通道 / 空间 / 频率注意力
-        single_cnn_mlp.py      # 单分支 CNN + MLP 顶层模型
+        single_cnn_mlp.py      # 单分支 CNN + MLP + 768 维投影头
+        text_encoder.py        # LaBSE 文本编码器（冻结）
     band.py                    # α/β/γ 带通滤波与首尾裁剪
     dataset.py                 # Chisco EEG Dataset（按 bands 返回 (C, 122, T)）
     train.py

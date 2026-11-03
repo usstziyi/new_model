@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .attention import ChannelAttention, SpatialAttention, FrequencyAttention
 from .ms_conv import MultiScaleConvLayer
@@ -13,22 +14,34 @@ class SingleBranchCNNMLP(nn.Module):
     - 不再分 α / β 两条分支：各频段在通道维拼接成一个输入，只走一条卷积主干；
     - 去掉分支融合、LayerNorm、初级胶囊与动态路由；
     - 分类头换成「全局平均池化 -> 两层 MLP」，输出 logits，
-      配合 ``nn.CrossEntropyLoss``。
+      配合 ``nn.CrossEntropyLoss``；
+    - 额外有一个 768 维线性投影头，把 GAP 特征映射到与 LaBSE 相同的向量空间
+      并做 L2 归一化，用于 EEG-文本对比对齐。
 
     Args:
         in_channels: 输入通道数，即频段个数（α+β 时为 ``2``，单频段时为 ``1``）。
         num_classes: 语义类别数，ds005170 为 ``39``。
         hidden_dim: MLP 隐层维度，默认 ``128``。
         dropout: MLP 前的 dropout 概率，默认 ``0.5``。
+        embed_dim: 对比对齐空间的维度，与文本编码器输出一致，LaBSE 为 ``768``。
 
     Input:
         ``(B, in_channels, E, T)``，``E = 122`` 为电极数，``T`` 为时间采样点数。
 
     Output:
-        ``(B, num_classes)`` 未归一化的 logits。
+        ``forward``: ``(B, num_classes)`` 未归一化的 logits。
+        ``forward_with_embedding``: ``(logits, z)``，``z`` 为 ``(B, embed_dim)``
+        已 L2 归一化的 EEG 向量。
     """
 
-    def __init__(self, in_channels=2, num_classes=39, hidden_dim=128, dropout=0.5):
+    def __init__(
+        self,
+        in_channels=2,
+        num_classes=39,
+        hidden_dim=128,
+        dropout=0.5,
+        embed_dim=768,
+    ):
         super().__init__()
 
         # ================= 卷积主干（单分支） =================
@@ -54,11 +67,25 @@ class SingleBranchCNNMLP(nn.Module):
             nn.Linear(hidden_dim, num_classes),
         )
 
-    def forward(self, x):
-        # x: (B, in_channels, E, T)
+        # ============== EEG -> 文本空间投影头 ==============
+        self.embed_dim = embed_dim
+        self.projection = nn.Linear(256, embed_dim)
+
+    def features(self, x):
+        """返回 GAP 后的 256 维时空特征 ``(B, 256)``。"""
         x = self.pool1(self.ca(self.ms_conv1(x)))
         x = self.pool2(self.sa(self.ms_conv2(x)))
         x = self.pool3(self.fa(self.ms_conv3(x)))
+        return self.gap(x).flatten(1)
 
-        x = self.gap(x)             # (B, 256, 1, 1)
-        return self.classifier(x)   # (B, num_classes)
+    def forward(self, x):
+        """分类 logits ``(B, num_classes)``。"""
+        return self.classifier(self.features(x))
+
+    def forward_with_embedding(self, x):
+        """同时返回分类 logits 与 L2 归一化的对齐向量。"""
+        features = self.features(x)
+        logits = self.classifier(features)
+        embedding = F.normalize(self.projection(features), p=2, dim=-1)
+        return logits, embedding
+

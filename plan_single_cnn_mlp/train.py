@@ -3,10 +3,13 @@
 相比 CSFA-PMCCNN：
 
 - 单分支：α / β 等频段在通道维拼接后只走一条卷积主干（``--bands`` 控制）；
-- 去掉融合后端与胶囊层，分类头为「普通 3×3 卷积 -> GAP -> MLP」；
-- 损失函数为交叉熵 ``nn.CrossEntropyLoss``。
+- 去掉融合后端与胶囊层，分类头为「GAP -> MLP」；
+- EEG encoder 额外投影到 768 维，与冻结的 LaBSE 句向量做对比对齐：
+  最终目标 ``loss = CE(logits, y) + align_weight * CE(z_eeg @ z_text^T / tau, y)``，
+  两项都用 ``nn.CrossEntropyLoss``。
 
-# 想象任务（imagine）的试次长度不同，必须分别训练：
+文本侧：每个试次使用 CSV 里它自己的 ``sentence``，LaBSE 只在第一次遇到该句时
+编码并缓存，之后直接查表。train 与 imagine 的试次长度不同，必须分别训练。
 
     reading: pkl 2501 点 -> 首尾裁剪后 2251（默认 500 Hz）
     imagine: pkl 1651 点 -> 首尾裁剪后 1401（默认 500 Hz）
@@ -42,6 +45,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import (
     accuracy_score,
@@ -60,6 +64,7 @@ from dataset import (
     load_class_names,
 )
 from models import SingleBranchCNNMLP
+from models.text_encoder import LaBSETextEncoder
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "single_cnn_mlp"
@@ -119,6 +124,7 @@ def build_parts(
     target_sfreq: float,
     normalize: bool,
     cache_size: int,
+    return_sentence: bool = False,
 ) -> list[ChiscoEEGDataset]:
     """每个被试建一个 Dataset，便于按 run 分别缓存 pkl。"""
     return [
@@ -130,6 +136,7 @@ def build_parts(
             target_sfreq=target_sfreq,
             normalize=normalize,
             cache_size=cache_size,
+            return_sentence=return_sentence,
         )
         for subject in subjects
     ]
@@ -159,23 +166,75 @@ def make_eval_loader(dataset, batch_size: int, num_workers: int, pin_memory: boo
     )
 
 
+def collate_train_batch(batch):
+    """训练批：样本为 ``(x, label, sentence)``，句子保持 ``list[str]``。"""
+    inputs, labels, sentences = zip(*batch)
+    return torch.stack(inputs), torch.stack(labels), list(sentences)
+
+
+class SentenceEmbeddingBank:
+    """冻结 LaBSE 的句向量缓存。
+
+    LaBSE 只在该句第一次出现时编码，之后直接查表，因此整个训练过程每句只
+    编码一次。文本编码器始终留在 CPU 上，避免占用训练设备的显存。
+    """
+
+    def __init__(self, encoder: LaBSETextEncoder):
+        self.encoder = encoder
+        self._cache: dict[str, torch.Tensor] = {}
+
+    def embed(self, sentences: list[str], device: torch.device) -> torch.Tensor:
+        """返回 ``sentences`` 中每个唯一句子的向量，按首次出现顺序排列。"""
+        unique = list(dict.fromkeys(sentences))
+        missing = [sentence for sentence in unique if sentence not in self._cache]
+        if missing:
+            embeddings = self.encoder(missing).cpu()
+            self._cache.update(zip(missing, embeddings))
+        return torch.stack([self._cache[sentence] for sentence in unique]).to(device)
+
+
+def text_contrastive_loss(
+    z_eeg: torch.Tensor,
+    sentences: list[str],
+    bank: SentenceEmbeddingBank,
+    temperature: float,
+) -> torch.Tensor:
+    """batch 内唯一句子作为对比类别，计算 EEG -> 文本的 InfoNCE。
+
+    同一 batch 里不同被试出现的同一句会被合并成同一个类，避免把同一个
+    句子当成负样本；正样本是自己的句子，负样本是 batch 内其余句子。
+    """
+    unique = list(dict.fromkeys(sentences))
+    z_text = bank.embed(unique, z_eeg.device)          # (U, embed_dim)
+    index = {sentence: pos for pos, sentence in enumerate(unique)}
+    targets = torch.tensor(
+        [index[sentence] for sentence in sentences], device=z_eeg.device
+    )
+    logits = z_eeg @ z_text.t() / temperature          # (B, U)
+    return F.cross_entropy(logits, targets)
+
+
 def train_one_epoch(
     model,
     loader,
     criterion,
     optimizer,
     device,
+    bank: SentenceEmbeddingBank,
+    temperature: float,
+    align_weight: float,
     max_batches=None,
     step_log_path: Path | None = None,
     epoch: int = 1,
 ):
-    """跑一个 epoch，返回 (平均 loss, 样本数)。
+    """跑一个 epoch，返回 (总 loss, 分类 loss, 对齐 loss, 样本数)。
 
+    ``loss = CE(logits, y) + align_weight * InfoNCE(z_eeg, z_text)``。
     ``step_log_path`` 不为空时，把每个 step 的记录增量追加到该 CSV
     （文件已存在则接着写，不存在则先写表头），每写一行立即 flush。
     """
     model.train()
-    total_loss, n_samples = 0.0, 0
+    total_loss, total_cls, total_align, n_samples = 0.0, 0.0, 0.0, 0
 
     log_handle = None
     log_writer = None
@@ -185,14 +244,24 @@ def train_one_epoch(
         log_handle = step_log_path.open("a", newline="", encoding="utf-8")
         log_writer = csv.DictWriter(
             log_handle,
-            fieldnames=["epoch", "step", "loss", "batch", "samples", "lr", "seconds"],
+            fieldnames=[
+                "epoch",
+                "step",
+                "loss",
+                "loss_cls",
+                "loss_align",
+                "batch",
+                "samples",
+                "lr",
+                "seconds",
+            ],
         )
         if new_file:
             log_writer.writeheader()
             log_handle.flush()
 
     try:
-        for step, (inputs, labels) in enumerate(loader):
+        for step, (inputs, labels, sentences) in enumerate(loader):
             if max_batches is not None and step >= max_batches:
                 break
             step_started = time.time()
@@ -200,18 +269,25 @@ def train_one_epoch(
             labels = labels.to(device, non_blocking=True)
 
             optimizer.zero_grad(set_to_none=True)
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            outputs, z_eeg = model.forward_with_embedding(inputs)
+            loss_cls = criterion(outputs, labels)
+            loss_align = text_contrastive_loss(z_eeg, sentences, bank, temperature)
+            loss = loss_cls + align_weight * loss_align
             loss.backward()
             optimizer.step()
 
             loss_value = loss.item()
+            cls_value = loss_cls.item()
+            align_value = loss_align.item()
             total_loss += loss_value * labels.size(0)
+            total_cls += cls_value * labels.size(0)
+            total_align += align_value * labels.size(0)
             n_samples += labels.size(0)
             elapsed = time.time() - step_started
 
             print(
-                f"    [step {step + 1}] loss={loss_value:.4f} batch={labels.size(0)} "
+                f"    [step {step + 1}] loss={loss_value:.4f} "
+                f"cls={cls_value:.4f} align={align_value:.4f} batch={labels.size(0)} "
                 f"samples={n_samples} lr={optimizer.param_groups[0]['lr']:.2e} "
                 f"({elapsed:.2f}s)",
                 flush=True,
@@ -223,6 +299,8 @@ def train_one_epoch(
                         "epoch": epoch,
                         "step": step + 1,
                         "loss": f"{loss_value:.6f}",
+                        "loss_cls": f"{cls_value:.6f}",
+                        "loss_align": f"{align_value:.6f}",
                         "batch": labels.size(0),
                         "samples": n_samples,
                         "lr": f"{optimizer.param_groups[0]['lr']:.6e}",
@@ -236,7 +314,12 @@ def train_one_epoch(
 
     if n_samples == 0:
         raise RuntimeError("训练集为空，检查 --train-days / --max-train-batches")
-    return total_loss / n_samples, n_samples
+    return (
+        total_loss / n_samples,
+        total_cls / n_samples,
+        total_align / n_samples,
+        n_samples,
+    )
 
 
 @torch.no_grad()
@@ -290,6 +373,10 @@ def save_checkpoint(
     bands,
     target_sfreq,
     normalize,
+    embed_dim,
+    text_model,
+    align_weight,
+    temperature,
     train_runs,
     val_runs,
     epoch,
@@ -301,6 +388,10 @@ def save_checkpoint(
             "model_state": model.state_dict(),
             "in_channels": len(bands),
             "num_classes": model.classifier[-1].out_features,
+            "embed_dim": embed_dim,
+            "text_model": text_model,
+            "align_weight": align_weight,
+            "temperature": temperature,
             "task": task,
             "subjects": subjects,
             "bands": bands,
@@ -367,6 +458,9 @@ def parse_args():
     parser.add_argument("--task", required=True, choices=("reading", "imagine"), help="任务")
     parser.add_argument("--subjects", nargs="+", default=None, help="被试，默认自动发现")
     parser.add_argument("--bands", nargs="+", default=list(DEFAULT_BANDS), choices=("alpha", "beta", "gamma"), help="输入频段，按顺序在通道维拼接；默认 alpha beta（2 通道）")
+    parser.add_argument("--text-model", default="sentence-transformers/LaBSE", help="LaBSE 模型名或本地路径")
+    parser.add_argument("--align-weight", type=float, default=0.5, help="EEG-文本对比损失权重（默认 0.5）")
+    parser.add_argument("--temperature", type=float, default=0.07, help="对比损失温度 tau（默认 0.07）")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="验证集占全部 run 的比例，默认 0.2")
     parser.add_argument("--epochs", type=int, default=50, help="最大 epoch 数")
     parser.add_argument("--batch-size", type=int, default=32, help="batch size")
@@ -417,7 +511,14 @@ def main():
     target_sfreq = args.target_sfreq
 
     train_parts = build_parts(
-        subjects, args.task, train_runs, bands, target_sfreq, normalize, args.cache_size
+        subjects,
+        args.task,
+        train_runs,
+        bands,
+        target_sfreq,
+        normalize,
+        args.cache_size,
+        return_sentence=True,
     )
     val_parts = build_parts(
         subjects, args.task, val_runs, bands, target_sfreq, normalize, args.cache_size
@@ -438,10 +539,22 @@ def main():
         sampler=RunBlockSampler(combined_run_ids(train_parts), shuffle=True, seed=args.seed),
         num_workers=args.num_workers,
         pin_memory=device.type == "cuda",
+        collate_fn=collate_train_batch,
     )
     val_loader = make_eval_loader(val_set, args.batch_size, args.num_workers, device.type == "cuda")
 
-    model = SingleBranchCNNMLP(in_channels=len(bands), num_classes=num_classes).to(device)
+    # 文本编码器固定留在 CPU：只在该句第一次出现时编码，之后查缓存。
+    text_encoder = LaBSETextEncoder(args.text_model)
+    text_bank = SentenceEmbeddingBank(text_encoder)
+    embed_dim = text_encoder.embedding_dim
+    print(
+        f"[Text] model={args.text_model} embed_dim={embed_dim} "
+        f"(冻结，逐句按需编码并缓存)"
+    )
+
+    model = SingleBranchCNNMLP(
+        in_channels=len(bands), num_classes=num_classes, embed_dim=embed_dim
+    ).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[Model] SingleBranchCNNMLP | classes={num_classes} | params={n_params:,}")
 
@@ -449,6 +562,10 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=max(1, args.patience // 3)
+    )
+    print(
+        f"[Objective] CE_cls + {args.align_weight:g} * InfoNCE "
+        f"(tau={args.temperature:g}, 文本=逐句真实句子)"
     )
 
     run_name = args.run_name or f"{args.task}_{datetime.now():%Y%m%d_%H%M%S}"
@@ -462,12 +579,15 @@ def main():
 
     for epoch in range(1, args.epochs + 1):
         started = time.time()
-        train_loss, train_n = train_one_epoch(
+        train_loss, train_cls, train_align, train_n = train_one_epoch(
             model,
             train_loader,
             criterion,
             optimizer,
             device,
+            text_bank,
+            args.temperature,
+            args.align_weight,
             args.max_train_batches,
             step_log_path=out_dir / "step_log.csv",
             epoch=epoch,
@@ -480,6 +600,8 @@ def main():
         row = {
             "epoch": epoch,
             "train_loss": train_loss,
+            "train_loss_cls": train_cls,
+            "train_loss_align": train_align,
             "train_samples": train_n,
             "val_loss": val_metrics["loss"],
             "val_accuracy": val_metrics["accuracy"],
@@ -493,7 +615,8 @@ def main():
 
         print(
             f"[Epoch {epoch:02d}/{args.epochs}] "
-            f"train_loss={train_loss:.4f} val_loss={val_metrics['loss']:.4f} "
+            f"train_loss={train_loss:.4f} (cls={train_cls:.4f} align={train_align:.4f}) "
+            f"val_loss={val_metrics['loss']:.4f} "
             f"val_acc={val_metrics['accuracy']:.4f} val_macro_f1={val_metrics['macro_f1']:.4f} "
             f"lr={row['lr']:.2e} ({row['seconds']:.1f}s)"
         )
@@ -508,6 +631,10 @@ def main():
                 bands,
                 target_sfreq,
                 normalize,
+                embed_dim,
+                args.text_model,
+                args.align_weight,
+                args.temperature,
                 train_runs,
                 val_runs,
                 epoch,

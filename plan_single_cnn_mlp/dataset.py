@@ -12,12 +12,14 @@
         <subject>_task-<read|imagine>_run-<NNN>_eeg.pkl
     datasets/ds005170-download/json/classnumber.json
 
-``__getitem__`` 返回 ``(x, label)``：
+``__getitem__`` 默认返回 ``(x, label)``；``return_sentence=True`` 时额外返回句子文本
+``(x, label, sentence)``，供 EEG-文本对比对齐使用：
 
 - ``x``：``torch.float32``，``(len(bands), 122, T)``，单位 µV（可选 z-score）。
   默认 ``bands=("alpha", "beta")`` 时为 ``(2, 122, T)``；只用一个频段时为
   ``(1, 122, T)``。
-- ``label``：``torch.long``，句子语义类别 ``type_number``
+- ``label``：``torch.long``，句子语义类别 ``type_number``。
+- ``sentence``：``str``，CSV 里该试次对应句子的原文。
 
 ``T`` 由任务决定、与句长无关：pkl 原始长度 reading 2501 / imagine 1651（500 Hz），
 经 ``band.py`` 首尾各裁 0.25 s（共 250 点）后为 2251 / 1401。默认 ``target_sfreq=500``
@@ -134,6 +136,7 @@ class ChiscoEEGDataset(Dataset):
         normalize: bool = True,
         margin_sec: float = MARGIN_SEC,
         cache_size: int = 2,
+        return_sentence: bool = False,
         csv_root: Path = CSV_ROOT,
         pkl_root: Path = PKL_ROOT,
     ):
@@ -161,6 +164,7 @@ class ChiscoEEGDataset(Dataset):
         self.bands = bands
         self.normalize = normalize
         self.margin_sec = margin_sec
+        self.return_sentence = return_sentence
 
         csv_path = Path(csv_root) / f"{subject}_{label}.csv"
         with csv_path.open(encoding="utf-8-sig", newline="") as handle:
@@ -261,6 +265,8 @@ class ChiscoEEGDataset(Dataset):
         # 按 bands 顺序拼成 (len(bands), 122, T)
         x = torch.cat([self._to_tensor(trial[name]) for name in self.bands], dim=0)
         label = torch.tensor(self.labels[index], dtype=torch.long)
+        if self.return_sentence:
+            return x, label, row["sentence"]
         return x, label
 
 
