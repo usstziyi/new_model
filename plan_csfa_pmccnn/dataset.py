@@ -14,13 +14,15 @@
 
 ``__getitem__`` 返回 ``(alpha, beta, label)``：
 
-- ``alpha``：``torch.float32``，``(1, 122, T)``，8–12 Hz，单位 µV（可选 z-score）
-- ``beta``：``torch.float32``，``(1, 122, T)``，13–30 Hz，单位 µV（可选 z-score）
+- ``alpha``：``torch.float32``，``(1, E, T)``，8–12 Hz，单位 µV（可选 z-score）
+- ``beta``：``torch.float32``，``(1, E, T)``，13–30 Hz，单位 µV（可选 z-score）
 - ``label``：``torch.long``，句子语义类别 ``type_number``
 
-形状中的 ``1`` 是 ``CSFAPMCCNN`` 的特征通道维 ``C``，``122`` 是电极数 ``E``，
-``T`` 是时间采样点数。经 ``DataLoader`` 组 batch 后即为
-``(B, 1, 122, T)``，可直接调用 ``model(alpha, beta)``。
+形状中的 ``1`` 是 ``CSFAPMCCNN`` 的特征通道维 ``C``，``E`` 是电极数，
+``T`` 是时间采样点数。``E = 122``（``use_64_channels=False``，默认，沿用 pkl
+通道顺序）或 ``E = 64``（``use_64_channels=True``，按 ``channels_64`` 的顺序）。
+经 ``DataLoader`` 组 batch 后即为 ``(B, 1, E, T)``，可直接调用
+``model(alpha, beta)``。
 
 ``T`` 由任务决定、与句长无关：pkl 原始长度 reading 2501 / imagine 1651（500 Hz），
 经 ``band.py`` 首尾各裁 0.25 s（共 250 点）后为 2251 / 1401。默认 ``target_sfreq=500``
@@ -36,7 +38,12 @@
 通道：pkl 的 125 通道 = 122 EEG + ``VEO`` + ``HEO`` + ``Trigger``，顺序沿用 EDF
 （已剔除原作者流程里的 10/11/84/85/110/111/EKG/EMG 占位/辅助通道），本 Dataset
 只取前 122 个。``Trigger`` 是刺激通道（基线 65280、事件码 65380），与 VEO/HEO
-一并剔除，既避免标签泄漏也避免量纲差异。
+一并剔除，既避免标签泄漏也避免量纲差异。这 122 个通道的 fif 顺序记录在
+``scripts/channels_122.csv``（``index,name``），本模块读取它作为通道顺序基准。
+
+``use_64_channels=True`` 时，从这 122 个通道中按 ``channels_64``（前额→枕区的
+分层顺序）取出 64 个，并按 ``channels_64`` 的顺序重排后返回；名称匹配不区分
+大小写（``channels_64`` 里的 ``FT7`` 对应 fif 里的 ``Ft7``）。
 
 单位：pkl 里的 EEG 采样值沿用 MNE 的默认约定，即**伏特（V）**；这里统一乘
 ``VOLT_TO_MICROVOLT`` 换算成**微伏（µV）**再返回。伏特量级约 1e-5，直接喂给网络会让
@@ -111,6 +118,38 @@ channels_64 = [
     "OI1", "Iz", "OI2",
 ]
 
+# 122 个 EEG 通道的 fif 顺序（index,name）
+CHANNELS_CSV = PROJECT_ROOT / "scripts/channels_122.csv"
+
+
+def load_channel_names(path: Path = CHANNELS_CSV) -> list[str]:
+    """读取 ``channels_122.csv``，返回按 fif 顺序排列的 122 个 EEG 通道名。"""
+    with Path(path).open(encoding="utf-8-sig", newline="") as handle:
+        names = [row["name"] for row in csv.DictReader(handle)]
+    if len(names) != N_EEG_CHANNELS:
+        raise ValueError(
+            f"{path} 应有 {N_EEG_CHANNELS} 个通道，实际 {len(names)} 个"
+        )
+    return names
+
+
+def resolve_channel_indices(selected: Sequence[str], available: Sequence[str]) -> np.ndarray:
+    """返回 ``selected`` 中每个通道在 ``available`` 里的下标（名称不区分大小写）。"""
+    lookup = {name.lower(): index for index, name in enumerate(available)}
+    indices: list[int] = []
+    missing: list[str] = []
+    for name in selected:
+        index = lookup.get(name.lower())
+        if index is None:
+            missing.append(name)
+        else:
+            indices.append(index)
+    if missing:
+        raise ValueError(f"以下通道在 fif 顺序中不存在: {missing}")
+    if len(set(indices)) != len(indices):
+        raise ValueError("channels_64 中存在重复通道")
+    return np.asarray(indices, dtype=np.int64)
+
 
 def load_class_names(path: Path = CLASSNUMBER) -> dict[int, str]:
     """读取 ``classnumber.json``，返回 ``{type_number: 中文类别名}``。"""
@@ -131,6 +170,9 @@ class ChiscoEEGDataset(Dataset):
         normalize: 是否对每个试次的每条通道做 z-score（默认 ``True``），
             抵消不同被试 / 不同通道的幅度差异。
         margin_sec: 首尾裁剪时长，默认沿用 ``band.py`` 的 0.25 s。
+        use_64_channels: 为 ``True`` 时只取 ``channels_64`` 列出的 64 个通道，
+            并按 ``channels_64`` 的顺序返回（``(1, 64, T)``）；默认 ``False``
+            保持原来的 122 通道 pkl/fif 顺序（``(1, 122, T)``）。
         cache_size: 缓存的 run 个数。单个 run 的 pkl 解包后约 300–450 MB，
             配合 ``RunBlockSampler`` 顺序访问时 1 个即可，默认 2 留一点余量。
         csv_root: ``make_text_csv.py`` 输出的 CSV 目录。
@@ -151,6 +193,7 @@ class ChiscoEEGDataset(Dataset):
         cache_size: int = 2,
         csv_root: Path = CSV_ROOT,
         pkl_root: Path = PKL_ROOT,
+        use_64_channels: bool = False,
     ):
         if task.lower() not in TASK_ALIASES:
             raise ValueError(f"task 需为 reading/imagine 之一，收到 {task!r}")
@@ -168,6 +211,16 @@ class ChiscoEEGDataset(Dataset):
         self.pkl_task = pkl_task
         self.normalize = normalize
         self.margin_sec = margin_sec
+
+        # 通道顺序基准：channels_122.csv 的 fif 顺序；
+        # use_64_channels 时按 channels_64 的顺序取子集
+        self.channel_names = load_channel_names()
+        if use_64_channels:
+            self._channel_indices = resolve_channel_indices(channels_64, self.channel_names)
+            self.channel_names = [self.channel_names[i] for i in self._channel_indices]
+        else:
+            self._channel_indices = None
+        self.n_channels = len(self.channel_names)
 
         csv_path = Path(csv_root) / f"{subject}_{label}.csv"
         with csv_path.open(encoding="utf-8-sig", newline="") as handle:
@@ -229,18 +282,20 @@ class ChiscoEEGDataset(Dataset):
             self._cache.popitem(last=False)
         return items
 
-    @staticmethod
-    def _extract_eeg(features) -> np.ndarray:
-        """``(1, 125, T)`` -> ``(122, T)``，只保留 EEG 通道。"""
+    def _extract_eeg(self, features) -> np.ndarray:
+        """``(1, 125, T)`` -> ``(E, T)``：只保留 EEG，并按需取 64 通道子集。"""
         array = np.asarray(features)
         if array.ndim == 3 and array.shape[0] == 1:
             array = array[0]
         if array.ndim != 2 or array.shape[0] < N_EEG_CHANNELS:
             raise RuntimeError(f"无法识别的 input_features 形状: {array.shape}")
-        return array[:N_EEG_CHANNELS]
+        array = array[:N_EEG_CHANNELS]
+        if self._channel_indices is not None:
+            array = array[self._channel_indices]
+        return array
 
     def _to_tensor(self, band_data: np.ndarray) -> torch.Tensor:
-        """V -> µV，可选降采样 / z-score，返回 ``(1, 122, T)`` float32。"""
+        """V -> µV，可选降采样 / z-score，返回 ``(1, E, T)`` float32。"""
         data = band_data * VOLT_TO_MICROVOLT
         if self._decimate > 1:
             data = data[:, :: self._decimate]

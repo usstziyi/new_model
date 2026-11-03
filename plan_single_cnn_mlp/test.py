@@ -45,6 +45,7 @@ def main():
     bands = tuple(checkpoint.get("bands", DEFAULT_BANDS))
     target_sfreq = checkpoint.get("target_sfreq", 500.0)
     normalize = checkpoint.get("normalize", True)
+    use_64_channels = checkpoint.get("use_64_channels", False)
     num_classes = checkpoint["num_classes"]
     val_runs = checkpoint.get("val_runs")
     if not val_runs:
@@ -52,10 +53,14 @@ def main():
     print(
         f"[Checkpoint] task={task} subjects={subjects} bands={bands} "
         f"epoch={checkpoint.get('epoch')} sfreq={target_sfreq:g} "
-        f"normalize={normalize} classes={num_classes}"
+        f"normalize={normalize} channels={64 if use_64_channels else 122} "
+        f"classes={num_classes}"
     )
 
-    parts = build_parts(subjects, task, val_runs, bands, target_sfreq, normalize, args.cache_size)
+    parts = build_parts(
+        subjects, task, val_runs, bands, target_sfreq, normalize,
+        args.cache_size, use_64_channels=use_64_channels,
+    )
     dataset = concat_or_single(parts)
     loader = make_eval_loader(
         dataset, args.batch_size, args.num_workers, device.type == "cuda"

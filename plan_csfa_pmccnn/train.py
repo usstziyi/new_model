@@ -23,6 +23,9 @@
     # 想象任务
     uv run plan_csfa_pmccnn/train.py --task imagine
 
+    # 只用 channels_64 的 64 个通道（按该列表顺序重排）
+    uv run plan_csfa_pmccnn/train.py --task imagine --use-64-channels
+
     # 想象任务，限制 epoch 与 batch 数（快速试跑）
     uv run plan_csfa_pmccnn/train.py --task imagine --epochs 5 \
         --max-train-batches 20 --max-val-batches 10 --max-test-batches 10
@@ -124,6 +127,7 @@ def build_parts(
     target_sfreq: float,
     normalize: bool,
     cache_size: int,
+    use_64_channels: bool,
 ) -> list[ChiscoEEGDataset]:
     """每个被试建一个 Dataset，便于按 run 分别缓存 pkl。"""
     return [
@@ -134,6 +138,7 @@ def build_parts(
             target_sfreq=target_sfreq,
             normalize=normalize,
             cache_size=cache_size,
+            use_64_channels=use_64_channels,
         )
         for subject in subjects
     ]
@@ -280,7 +285,9 @@ def evaluate(model, loader, criterion, device, num_classes, max_batches=None, am
     }
 
 
-def save_checkpoint(path, model, task, subjects, target_sfreq, normalize, epoch, metrics):
+def save_checkpoint(
+    path, model, task, subjects, target_sfreq, normalize, use_64_channels, epoch, metrics
+):
     """保存模型与复现实验所需的配置。"""
     torch.save(
         {
@@ -291,6 +298,7 @@ def save_checkpoint(path, model, task, subjects, target_sfreq, normalize, epoch,
             "subjects": subjects,
             "target_sfreq": target_sfreq,
             "normalize": normalize,
+            "use_64_channels": use_64_channels,
             "epoch": epoch,
             "val_metrics": {k: v for k, v in metrics.items() if k not in ("preds", "targets")},
         },
@@ -373,6 +381,11 @@ def parse_args():
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--no-normalize", action="store_true", help="关闭逐通道 z-score")
     parser.add_argument("--cache-size", type=int, default=1, help="每个被试缓存的 run 数")
+    parser.add_argument(
+        "--use-64-channels",
+        action="store_true",
+        help="只用 channels_64 列出的 64 个通道，并按该列表顺序重排（默认用 122 通道原顺序）",
+    )
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 进程数（pkl 很大，默认 0）")
     parser.add_argument("--device", default=None, help="cpu / cuda，默认自动选择")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
@@ -416,9 +429,18 @@ def main():
     normalize = not args.no_normalize
     target_sfreq = args.target_sfreq
 
-    train_parts = build_parts(subjects, args.task, train_runs, target_sfreq, normalize, args.cache_size)
-    val_parts = build_parts(subjects, args.task, val_runs, target_sfreq, normalize, args.cache_size)
-    test_parts = build_parts(subjects, args.task, test_runs, target_sfreq, normalize, args.cache_size)
+    train_parts = build_parts(
+        subjects, args.task, train_runs, target_sfreq, normalize,
+        args.cache_size, args.use_64_channels,
+    )
+    val_parts = build_parts(
+        subjects, args.task, val_runs, target_sfreq, normalize,
+        args.cache_size, args.use_64_channels,
+    )
+    test_parts = build_parts(
+        subjects, args.task, test_runs, target_sfreq, normalize,
+        args.cache_size, args.use_64_channels,
+    )
 
     train_set = concat_or_single(train_parts)
     val_set = concat_or_single(val_parts)
@@ -427,6 +449,10 @@ def main():
         f"[Split] train={len(train_set)} val={len(val_set)} test={len(test_set)} | "
         f"runs train={train_runs[0]}-{train_runs[-1]} "
         f"val={val_runs[0]}-{val_runs[-1]} test={test_runs[0]}-{test_runs[-1]}"
+    )
+    print(
+        f"[Channels] {train_parts[0].n_channels} "
+        f"({'channels_64 顺序' if args.use_64_channels else 'fif 原顺序'})"
     )
 
     train_loader = DataLoader(
@@ -521,7 +547,8 @@ def main():
         if val_metrics["macro_f1"] > best_f1 + 1e-4:
             best_f1, best_epoch, no_improve = val_metrics["macro_f1"], epoch, 0
             save_checkpoint(
-                checkpoint_path, model, args.task, subjects, target_sfreq, normalize, epoch, val_metrics
+                checkpoint_path, model, args.task, subjects, target_sfreq, normalize,
+                args.use_64_channels, epoch, val_metrics,
             )
             print(f"[Best] epoch={epoch} macro_f1={best_f1:.4f} -> {checkpoint_path}")
         else:

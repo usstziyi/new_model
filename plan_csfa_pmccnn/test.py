@@ -56,14 +56,18 @@ def main():
     subjects = args.subjects or checkpoint["subjects"]
     target_sfreq = checkpoint.get("target_sfreq", 500.0)
     normalize = checkpoint.get("normalize", True)
+    use_64_channels = checkpoint.get("use_64_channels", False)
     num_classes = checkpoint["num_classes"]
     print(
         f"[Checkpoint] task={task} subjects={subjects} epoch={checkpoint.get('epoch')} "
-        f"sfreq={target_sfreq:g} normalize={normalize} classes={num_classes}"
+        f"sfreq={target_sfreq:g} normalize={normalize} channels={64 if use_64_channels else 122} "
+        f"classes={num_classes}"
     )
 
     runs = runs_from_days(args.days, args.runs_per_day)
-    parts = build_parts(subjects, task, runs, target_sfreq, normalize, args.cache_size)
+    parts = build_parts(
+        subjects, task, runs, target_sfreq, normalize, args.cache_size, use_64_channels
+    )
     dataset = concat_or_single(parts)
     loader = make_eval_loader(
         dataset, args.batch_size, args.num_workers, device.type == "cuda"
