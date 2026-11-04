@@ -163,17 +163,6 @@ def combined_run_ids(parts: list[ChiscoEEGDataset]) -> list[int]:
     return ids
 
 
-def make_eval_loader(dataset, batch_size: int, num_workers: int, pin_memory: bool):
-    """验证集保持 CSV 的 run 顺序，缓存命中率最高。"""
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-    )
-
-
 def collate_train_batch(batch):
     """训练批：样本为 ``(x, label, sentence)``，句子保持 ``list[str]``。"""
     inputs, labels, sentences = zip(*batch)
@@ -489,11 +478,7 @@ def parse_args():
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--no-normalize", action="store_true", help="关闭逐通道 z-score")
     parser.add_argument("--cache-size", type=int, default=1, help="每个被试缓存的 run 数")
-    parser.add_argument(
-        "--use-64-channels",
-        action="store_true",
-        help="只用 channels_64 列出的 64 个通道，并按该列表顺序重排（默认用 122 通道原顺序）",
-    )
+    parser.add_argument("--use-64-channels", action="store_true", help="只用 channels_64 列出的 64 个通道，并按该列表顺序重排（默认用 122 通道原顺序）")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 进程数（pkl 很大，默认 0）")
     parser.add_argument("--device", default=None, help="cpu / cuda，默认自动选择")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
@@ -535,15 +520,8 @@ def main():
     target_sfreq = args.target_sfreq
 
     train_parts = build_parts(
-        subjects,
-        args.task,
-        train_runs,
-        bands,
-        target_sfreq,
-        normalize,
-        args.cache_size,
-        return_sentence=True,
-        use_64_channels=args.use_64_channels,
+        subjects, args.task, train_runs, bands, target_sfreq, normalize,
+        args.cache_size, return_sentence=True, use_64_channels=args.use_64_channels,
     )
     val_parts = build_parts(
         subjects, args.task, val_runs, bands, target_sfreq, normalize,
@@ -568,7 +546,14 @@ def main():
         pin_memory=device.type == "cuda",
         collate_fn=collate_train_batch,
     )
-    val_loader = make_eval_loader(val_set, args.batch_size, args.num_workers, device.type == "cuda")
+    # 验证集保持 CSV 的 run 顺序，缓存命中率最高
+    val_loader = DataLoader(
+        val_set,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=device.type == "cuda",
+    )
 
     # 文本编码器固定留在 CPU：只在该句第一次出现时编码，之后查缓存。
     text_encoder = LaBSETextEncoder(args.text_model)

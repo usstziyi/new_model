@@ -15,10 +15,11 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 
 from dataset import DEFAULT_BANDS, load_class_names
 from models import SingleBranchCNNMLP
-from train import build_parts, concat_or_single, make_eval_loader, report_metrics
+from train import build_parts, concat_or_single, report_metrics
 
 
 def parse_args():
@@ -62,8 +63,13 @@ def main():
         args.cache_size, use_64_channels=use_64_channels,
     )
     dataset = concat_or_single(parts)
-    loader = make_eval_loader(
-        dataset, args.batch_size, args.num_workers, device.type == "cuda"
+    # 保持 CSV 的 run 顺序，缓存命中率最高
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=device.type == "cuda",
     )
     print(f"[Split] val_runs={val_runs} samples={len(dataset)}")
 
