@@ -115,37 +115,31 @@ class PMCNNBlock(nn.Module):
 
 
 # ============================================================
-# 3. EEG Stem: 1 -> C0 时间卷积升维 + 电极可学习压缩
+# 3. EEG Stem: 1 -> C0 时间卷积升维 + 真空间卷积
 # ------------------------------------------------------------
-# 改动: 新增电极压缩 (E_in -> E_out)
-#   E_out = 1  -> 直接压成 "全局空间滤波器" (轻量)
-#   E_out > 1  -> 学 E_out 个空间基向量 (保留少量空间结构)
-# 使用 groups 控制参数量
+# 改动: 用电极轴上的普通卷积 (groups=1) 做真正的空间滤波
+#   - 每个输出通道的 kernel 覆盖全部 E_in 个电极, 并混合全部 C0 个时间特征
+#   - E_out 个输出通道 = E_out 个真实的空间滤波器 (虚拟电极)
+#   - 再把每个虚拟电极的标量时间序列升维到 C0 个特征
+# 与旧实现相比, 空间信息不再被压成每通道 1 个深度卷积核
 # ============================================================
 class EEGStem(nn.Module):
     """
     原始 EEG (B, 1, E_in, T) -> (B, C0, E_out, T)
 
-    两步:
-      1) 时间轴升维:   Conv2d(1, C0, (1, k))
-      2) 电极轴压缩:   Conv2d(C0, C0, (E_in, 1), groups=C0)  (深度可分离)
-                      然后得到 (B, C0, 1, T), 若 E_out>1 再线性变换到 E_out
-
-    简化实现: 用一个 (E_in, 1) 深度卷积 + 1x1 卷积实现:
-         (B, C0, E_in, T) --(E_in,1,groups=C0)--> (B, C0, 1, T)
-         --(1x1, C0->C0*E_out) view --> (B, C0, E_out, T)
-    实际更简洁的做法: 直接 (E_in,1) 普通卷积, 输出 C_out_spatial 个空间基,
-    再沿通道重排为 E_out 个电极位置。
-    这里用最简单直观的方式: (E_in,1) 卷积, 输出通道 C0, 然后 broadcast/expand
-    到 E_out 个电极位置 (E_out 通过 repeat 或 interpolate 不重要),
-    为通用性, 采用以下方案:
-
-        Conv2d(C0, E_out*C0, kernel_size=(E_in,1), groups=C0)  -> 参数少
-        view -> (B, C0, E_out, T)
+    三步:
+      1) 时间轴升维:    Conv2d(1, C0, (1, k))
+      2) 真空间卷积:    Conv2d(C0, E_out, (E_in, 1), groups=1)
+                       每个输出通道对所有电极和所有时间特征做加权求和,
+                       得到 E_out 个空间滤波后的时间序列 (B, E_out, 1, T)
+      3) 逐电极特征升维: Conv2d(E_out, E_out*C0, 1, groups=E_out)
+                       每个虚拟电极独立映射到 C0 个特征, 电极之间不混
+                       reshape -> (B, C0, E_out, T)
     """
     def __init__(self, C0=64, k=7, E_in=122, E_out=16):
         super().__init__()
         assert E_out >= 1
+        self.C0 = C0
         self.E_in = E_in
         self.E_out = E_out
 
@@ -156,39 +150,32 @@ class EEGStem(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-        # 2) 电极压缩: 深度卷积 (E_in,1) 把 E_in 压到 1, 输出 C0 通道
-        self.spatial_depthwise = nn.Conv2d(
-            C0, C0, kernel_size=(E_in, 1), groups=C0, bias=False
+        # 2) 真空间卷积: kernel 跨全部电极, groups=1 让通道之间也参与混合
+        self.spatial = nn.Conv2d(
+            C0, E_out, kernel_size=(E_in, 1), bias=False
         )
-        self.spatial_bn = nn.BatchNorm2d(C0)
+        self.spatial_bn = nn.BatchNorm2d(E_out)
         self.spatial_act = nn.ReLU(inplace=True)
 
-        # 3) 若 E_out > 1, 学 E_out 个空间基 (1x1 卷积: C0 -> E_out*C0, 分组)
-        #    expand 后补 BN, 避免输出尺度未归一化直接送进 block1
-        if E_out > 1:
-            self.spatial_expand = nn.Sequential(
-                nn.Conv2d(C0, E_out * C0, kernel_size=1, groups=C0, bias=False),
-                nn.BatchNorm2d(E_out * C0),
-            )
-        else:
-            self.spatial_expand = None
+        # 3) 每个虚拟电极升维到 C0 个特征 (groups=E_out: 电极之间独立)
+        self.feature_expand = nn.Sequential(
+            nn.Conv2d(E_out, E_out * C0, kernel_size=1, groups=E_out, bias=False),
+            nn.BatchNorm2d(E_out * C0),
+        )
 
     def forward(self, x):
         # x: (B, 1, E_in, T)
         x = self.temporal(x)                     # (B, C0, E_in, T)
 
-        # 电极压缩: (E_in,1) 深度卷积 -> (B, C0, 1, T)
-        x = self.spatial_depthwise(x)
-        x = self.spatial_act(self.spatial_bn(x))
+        # 真空间卷积: 每个输出通道是一个覆盖全部电极的空间滤波器
+        x = self.spatial_act(self.spatial_bn(self.spatial(x)))  # (B, E_out, 1, T)
 
-        if self.spatial_expand is not None:
-            # (B, E_out*C0, 1, T) -> (B, C0, E_out, T)
-            B, _, _, T = x.shape
-            x = self.spatial_expand(x)           # (B, E_out*C0, 1, T)
-            x = x.view(B, self.E_out, -1, 1, T)  # (B, E_out, C0, 1, T)
-            x = x.squeeze(3).permute(0, 2, 1, 3).contiguous()  # (B, C0, E_out, T)
-        # 若 E_out==1, x 已经是 (B, C0, 1, T)
-        return x                                 # (B, C0, E_out, T)
+        # 逐电极升维: 输出通道序号 k = e*C0 + c, 与下面 reshape 的分组一致
+        B, _, _, T = x.shape
+        x = self.feature_expand(x)               # (B, E_out*C0, 1, T)
+        x = x.reshape(B, self.E_out, self.C0, 1, T).squeeze(3)
+        x = x.permute(0, 2, 1, 3).contiguous()   # (B, C0, E_out, T)
+        return x
 
 
 # ============================================================
