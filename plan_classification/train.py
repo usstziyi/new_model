@@ -13,10 +13,8 @@
     imagine: pkl 1651 点（默认 500 Hz）
     若用 --target-sfreq 250，则分别为 1251 / 826
 
-默认参数按 8 GB 显卡设置（bf16 混合精度 + 梯度累积，等效 batch 固定为 32、
-500 Hz、50 epoch）。micro-batch 默认 imagine=8 / reading=4，再按 --batch-size
-自动补足 --accum-steps 到等效 32。显存更宽裕时可直接调大 --batch-size
-并相应调小 --accum-steps（如 16/2）。
+默认参数按 8 GB 显卡设置（bf16 混合精度，batch 32、500 Hz、50 epoch）。
+显存不足时可调小 --batch-size。
 
 按天划分（每 9 个 run 为一天，共 45 个 run / 5 天）：
 
@@ -153,17 +151,12 @@ def train_one_epoch(
     optimizer,
     device,
     max_batches=None,
-    accum_steps: int = 1,
     amp_dtype=None,
     scaler=None,
 ):
-    """跑一个 epoch，返回 (平均 loss, 样本数)。
-
-    用累加 accum_steps 个 micro-batch 的梯度再更新一次参数，等效 batch 不变。
-    """
+    """跑一个 epoch，返回 (平均 loss, 样本数)。"""
     model.train()
     total_loss, n_samples = 0.0, 0
-    pending = 0
     use_amp = amp_dtype is not None
 
     def step_optimizer():
@@ -186,29 +179,22 @@ def train_one_epoch(
             outputs = model(inputs)
             loss = criterion(outputs, labels)
 
-        scaled_loss = loss / accum_steps
         if scaler is not None and scaler.is_enabled():
-            scaler.scale(scaled_loss).backward()
+            scaler.scale(loss).backward()
         else:
-            scaled_loss.backward()
+            loss.backward()
 
         loss_value = loss.item()
         total_loss += loss_value * labels.size(0)
         n_samples += labels.size(0)
 
-        pending += 1
         print(
             f"    [step {step + 1}] loss={loss_value:.4f} batch={labels.size(0)} "
-            f"samples={n_samples} accum={pending}/{accum_steps} "
+            f"samples={n_samples} "
             f"lr={optimizer.param_groups[0]['lr']:.2e} "
             f"({time.time() - step_started:.2f}s)",
             flush=True,
         )
-        if pending == accum_steps:
-            step_optimizer()
-            pending = 0
-
-    if pending:
         step_optimizer()
 
     if n_samples == 0:
@@ -350,8 +336,7 @@ def parse_args():
     parser.add_argument("--use-64-channels", action="store_true", help="只用 channels_64 列出的 64 个通道，并按该列表顺序重排（默认用 122 通道原顺序）")
     # ---------- 训练 ----------
     parser.add_argument("--epochs", type=int, default=50, help="最大 epoch 数")
-    parser.add_argument("--batch-size", type=int, default=None, help="单次前向的 micro-batch size，默认 imagine=8 / reading=4")
-    parser.add_argument("--accum-steps", type=int, default=None, help="梯度累积步数，默认按 --batch-size 补足到等效 batch=32")
+    parser.add_argument("--batch-size", type=int, default=32, help="单次前向的 batch size，默认 32")
     parser.add_argument("--no-amp", action="store_true", help="关闭 CUDA 混合精度（默认开启）")
     parser.add_argument("--lr", type=float, default=1e-3, help="Adam 学习率")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="Adam weight decay")
@@ -378,13 +363,6 @@ def parse_args():
 def main():
     args = parse_args()
     set_seed(args.seed)
-
-    # micro-batch 按任务长度取默认值（imagine 1651 点、reading 2501 点），
-    # 再用梯度累积把等效 batch 补回 32。
-    if args.batch_size is None:
-        args.batch_size = 8 if args.task == "imagine" else 4
-    if args.accum_steps is None:
-        args.accum_steps = max(1, 32 // args.batch_size)
 
     device = torch.device(
         args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -468,9 +446,7 @@ def main():
             amp_dtype = torch.float16
             scaler = torch.amp.GradScaler("cuda")
     print(
-        f"[Precision] {amp_dtype or torch.float32} | "
-        f"micro_batch={args.batch_size} accum={args.accum_steps} "
-        f"effective_batch={args.batch_size * args.accum_steps}"
+        f"[Precision] {amp_dtype or torch.float32} | batch={args.batch_size}"
     )
 
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
@@ -497,7 +473,6 @@ def main():
             optimizer,
             device,
             args.max_train_batches,
-            args.accum_steps,
             amp_dtype,
             scaler,
         )
