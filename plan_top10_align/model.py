@@ -125,16 +125,22 @@ class PMCNNBlock(nn.Module):
 
 
 # ============================================================
-# 3. EEG Stem: 1 -> C0 时间卷积升维 + 真空间卷积
+# 3. EEG Stem: 1 -> C0 时间卷积升维 + 深度可分离空间滤波
 # ------------------------------------------------------------
 class EEGStem(nn.Module):
     """
     原始 EEG (B, 1, E_in, T) -> (B, C0, E_out, T)
 
-    三步:
-      1) 时间轴升维:    Conv2d(1, C0, (1, k))
-      2) 真空间卷积:    Conv2d(C0, E_out, (E_in, 1), groups=1)
-      3) 逐电极特征升维: Conv2d(E_out, E_out*C0, 1, groups=E_out)
+    四步:
+      1) 时间轴升维:     Conv2d(1, C0, (1, k))
+      2) 逐特征空间滤波: Conv2d(C0, C0, (E_in, 1), groups=C0)
+      3) 通道混合:       Conv2d(C0, E_out, 1)
+      4) 逐电极特征升维: Conv2d(E_out, E_out*C0, 1, groups=E_out)
+
+    空间阶段用 depthwise 而非一次 C0 -> E_out 的全局读出：
+      - 每个时间特征各自有一套 122 电极的空间权重，不与其他时间特征混在一起；
+      - ReLU 之后再做通道混合，多一层非线性；
+      - 参数 C0*E_in + C0*E_out（默认 8,832），取代 C0*E_out*E_in（124,928）。
     """
 
     def __init__(self, C0=64, k=7, E_in=122, E_out=16):
@@ -151,14 +157,17 @@ class EEGStem(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-        # 2) 真空间卷积: kernel 跨全部电极, groups=1 让通道之间也参与混合
-        self.spatial = nn.Conv2d(
-            C0, E_out, kernel_size=(E_in, 1), bias=False
+        # 2) 逐特征空间滤波: kernel 跨全部电极, groups=C0 让每个时间特征独立
+        self.spatial_depth = nn.Conv2d(
+            C0, C0, kernel_size=(E_in, 1), groups=C0, bias=False
         )
-        self.spatial_bn = nn.BatchNorm2d(E_out)
+        self.spatial_bn = nn.BatchNorm2d(C0)
         self.spatial_act = nn.ReLU(inplace=True)
 
-        # 3) 每个虚拟电极升维到 C0 个特征 (groups=E_out: 电极之间独立)
+        # 3) 通道混合: C0 -> E_out
+        self.merge = nn.Conv2d(C0, E_out, kernel_size=1, bias=False)
+
+        # 4) 每个虚拟电极升维到 C0 个特征 (groups=E_out: 电极之间独立)
         self.feature_expand = nn.Sequential(
             nn.Conv2d(E_out, E_out * C0, kernel_size=1, groups=E_out, bias=False),
             nn.BatchNorm2d(E_out * C0),
@@ -168,8 +177,9 @@ class EEGStem(nn.Module):
         # x: (B, 1, E_in, T)
         x = self.temporal(x)                     # (B, C0, E_in, T)
 
-        # 真空间卷积: 每个输出通道是一个覆盖全部电极的空间滤波器
-        x = self.spatial_act(self.spatial_bn(self.spatial(x)))  # (B, E_out, 1, T)
+        # 真空间滤波: 每个时间特征各自覆盖全部电极, 再混合通道
+        x = self.spatial_act(self.spatial_bn(self.spatial_depth(x)))  # (B, C0, 1, T)
+        x = self.merge(x)                                            # (B, E_out, 1, T)
 
         # 逐电极升维: 输出通道序号 k = e*C0 + c, 与下面 reshape 的分组一致
         B, _, _, T = x.shape
@@ -306,7 +316,7 @@ class PMCNN(nn.Module):
 if __name__ == "__main__":
     B, E, T = 4, 122, 1651
     model = PMCNN(num_classes=10, E_in=E, E_out=16, C0=64, stem_k=7,
-                  use_electrode_attn=True, embed_dim=768)
+                  use_electrode_attn=False, embed_dim=768)
     x = torch.randn(B, 1, E, T)
 
     with torch.no_grad():

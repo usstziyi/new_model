@@ -384,15 +384,14 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-3, help="Adam 学习率")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="Adam weight decay")
     parser.add_argument("--patience", type=int, default=10, help="验证指标无提升的容忍 epoch 数")
-    parser.add_argument("--select-metric", default="mrr", choices=("mrr", "r1", "r5"),
-                        help="早停与保存 best 使用的验证指标")
+    parser.add_argument("--select-metric", default="mrr", choices=("mrr", "r1", "r5"), help="早停与保存 best 使用的验证指标")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     # ---------- 模型 ----------
     parser.add_argument("--e-out", type=int, default=16, help="Stem 压缩后的电极维 E_out")
     parser.add_argument("--c0", type=int, default=64, help="Stem 输出通道数")
     parser.add_argument("--stem-k", type=int, default=7, help="Stem 时间卷积核长")
     parser.add_argument("--dropout", type=float, default=0.5, help="投影头 dropout")
-    parser.add_argument("--use-electrode-attn", action="store_true", help="在 E 轴上做注意力池化")
+    parser.add_argument("--use-electrode-attn", action=argparse.BooleanOptionalAction, default=True, help="在 E 轴上做注意力池化（默认开启，--no-use-electrode-attn 关闭）")
     # ---------- 诊断 / 输出 ----------
     parser.add_argument("--knn-k", type=int, default=5, help="kNN 诊断的近邻数")
     parser.add_argument("--device", default=None, help="cpu / cuda，默认自动选择")
