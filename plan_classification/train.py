@@ -415,6 +415,7 @@ def main():
         train_set,
         batch_size=args.batch_size,
         sampler=RunBlockSampler(combined_run_ids(train_parts), shuffle=True, seed=args.seed),
+        drop_last=True,
         pin_memory=device.type == "cuda",
     )
     val_loader = make_eval_loader(val_set, args.batch_size, device.type == "cuda")
