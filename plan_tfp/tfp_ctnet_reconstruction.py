@@ -37,7 +37,7 @@ from torch import Tensor, nn
 class TFPCTNetConfig:
     n_times: int = 1651
     n_classes: int = 7
-    topo_dim: int = 128
+    topo_dim: int = 330           # φ(X) 池化后的时间分辨率（128 相当于 ~19 Hz 低通，会砍掉 beta/gamma）
     conv_channels: int = 16
     spatial_tokens: int = 8
     temporal_tokens: int = 8
@@ -59,7 +59,6 @@ class TopologyEmbedding(nn.Module):
         self.temporal_conv = nn.Conv1d(
             n_chans, n_chans, kernel_size=7, padding=3, groups=n_chans, bias=False,
         )
-        self.feature_ln = nn.LayerNorm(topo_dim)
         self.channel_embedding = nn.Parameter(torch.empty(n_chans, topo_dim))
         nn.init.normal_(self.channel_embedding, std=0.02)
         self.topo_scale = nn.Parameter(torch.tensor(1.0))
@@ -67,9 +66,10 @@ class TopologyEmbedding(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         phi_x = self.temporal_conv(x)                        # (B, C, T) 通道不交互
-        phi_x = F.adaptive_avg_pool1d(phi_x, self.topo_dim)  # (B, C, D_topo)
-        phi_x = self.feature_ln(phi_x)
-        topo = self.adjacency @ self.channel_embedding       # (C, D_topo)
+        phi_x = F.adaptive_avg_pool1d(phi_x, self.topo_dim)  # (B, C, topo_dim)
+        # 这里不做逐通道 LayerNorm：它会把每个电极的幅度/能量归一化掉，
+        # 而幅度正是频带特征的核心判别信息。
+        topo = self.adjacency @ self.channel_embedding       # (C, topo_dim)
         return phi_x + self.topo_scale * topo.unsqueeze(0)
 
 

@@ -2,7 +2,9 @@
 
 对应论文 4.3.2 的评估协议：被试内分层 5 折，每折约 80% 训练 / 20% 测试。
 论文没有单独划验证集，这里从每折的训练部分再分层留出 ``--val-ratio``（默认
-10%）用于早停与选模型，保证测试集只参与最终报告。
+15%）。验证集默认只用于记录曲线，不参与选模型：固定跑满 ``--epochs``（默认
+40）取最后一轮，因为几百条验证样本上 loss 与 f1 的最优点经常错位，挑 epoch
+等于挑噪声。需要早停时显式加 ``--early-stop``。测试集全程不参与。
 
 用法::
 
@@ -183,14 +185,15 @@ def parse_args():
     parser.add_argument("--transformer-dropout", type=float, default=0.1, help="Transformer dropout")
     parser.add_argument("--mlp-dropout", type=float, default=0.2, help="门控残差 MLP dropout")
     # ---------- 训练 ----------
-    parser.add_argument("--epochs", type=int, default=100, help="每折最大 epoch 数")
+    parser.add_argument("--epochs", type=int, default=40, help="每折固定训练 epoch 数")
     parser.add_argument("--batch-size", type=int, default=64, help="batch size")
     parser.add_argument("--lr", type=float, default=3e-4, help="AdamW 峰值学习率")
     parser.add_argument("--weight-decay", type=float, default=1e-3, help="AdamW weight decay")
     parser.add_argument("--label-smoothing", type=float, default=0.0, help="交叉熵 label smoothing")
     parser.add_argument("--warmup-epochs", type=int, default=5, help="线性 warmup 的 epoch 数")
     parser.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪阈值；<=0 表示关闭")
-    parser.add_argument("--patience", type=int, default=15, help="验证 loss 无改善的容忍 epoch 数")
+    parser.add_argument("--early-stop", action="store_true", help="按验证 loss 早停；默认关闭，固定跑满 --epochs 取最后一轮")
+    parser.add_argument("--patience", type=int, default=15, help="--early-stop 时验证 loss 无改善的容忍 epoch 数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     parser.add_argument("--no-amp", action="store_true", help="关闭自动混合精度（默认按设备自动选择：CUDA→bf16/fp16，CPU→fp32）")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 进程数；数据全在内存里，Windows 下 >0 会复制整份数据集，建议保持 0")
@@ -334,19 +337,27 @@ def main() -> None:
                 f"val_f1={val['f1']:.4f}"
             )
 
-            # 早停看 val_loss：验证集只有几百条，macro-F1 抖动太大，容易被噪声选中过拟合点
-            if val["loss"] < best_loss - 1e-4:
+            if args.early_stop:
+                # 早停看 val_loss：验证集只有几百条，macro-F1 抖动太大，容易被噪声选中过拟合点
+                if val["loss"] < best_loss - 1e-4:
+                    best_loss = val["loss"]
+                    best_f1, best_acc, best_epoch = val["f1"], val["acc"], epoch
+                    best_train_loss, best_train_acc = train["loss"], train["acc"]
+                    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                    no_improve = 0
+                else:
+                    no_improve += 1
+                    if no_improve >= args.patience:
+                        print(f"  [Stop] 验证 loss 已 {args.patience} 个 epoch 未改善")
+                        break
+            else:
+                # 固定预算：验证集太小，loss/f1 的最优点经常错位，挑 epoch 等于挑噪声，直接取最后一轮
                 best_loss = val["loss"]
                 best_f1, best_acc, best_epoch = val["f1"], val["acc"], epoch
                 best_train_loss, best_train_acc = train["loss"], train["acc"]
-                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-                no_improve = 0
-            else:
-                no_improve += 1
-                if no_improve >= args.patience:
-                    print(f"  [Stop] 验证 loss 已 {args.patience} 个 epoch 未改善")
-                    break
 
+        if best_state is None:      # 固定预算模式：用训练结束时的权重
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         model.load_state_dict(best_state)
         test = evaluate(
             model, loaders["test"], device, n_classes,
@@ -382,6 +393,7 @@ def main() -> None:
         "n_classes": n_classes,
         "n_folds": len(rows),
         "epochs": args.epochs,
+        "early_stop": args.early_stop,
         "sigma_mode": args.sigma_mode,
         "nn_factor": args.nn_factor,
         "acc_mean": float(accs.mean()),
