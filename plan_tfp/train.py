@@ -48,8 +48,25 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def pick_precision(device: torch.device, use_amp: bool = True):
+    """按设备自动选择精度。
+
+    - CUDA 且支持 bf16（Ampere 及更新）：``bfloat16`` 自动混合精度，无需 GradScaler；
+    - CUDA 但只支持 fp16：``float16`` + ``GradScaler``；
+    - CPU / MPS / 关闭 AMP：纯 ``float32``（返回 ``None``）。
+
+    返回 ``(amp_dtype, scaler)``，两者都为 ``None`` 表示全精度。
+    """
+    if not use_amp or device.type != "cuda":
+        return None, None
+    if torch.cuda.is_bf16_supported():
+        return torch.bfloat16, None
+    return torch.float16, torch.amp.GradScaler("cuda")
+
+
 def train_one_epoch(
-    model, loader, optimizer, device, max_batches=None, *, epoch=None, epochs=None
+    model, loader, optimizer, device, max_batches=None, *,
+    epoch=None, epochs=None, amp_dtype=None, scaler=None,
 ) -> float:
     """跑一个 epoch，返回平均交叉熵损失；每个 step 打印一行。"""
     model.train()
@@ -64,12 +81,18 @@ def train_one_epoch(
         inputs = inputs.squeeze(1).to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        logits = model(inputs)
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
+            logits = model(inputs)
         loss = F.cross_entropy(logits, labels)
 
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         total += loss.item() * labels.size(0)
         n_samples += labels.size(0)
@@ -86,7 +109,7 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, n_classes, max_batches=None) -> dict:
+def evaluate(model, loader, device, n_classes, max_batches=None, amp_dtype=None) -> dict:
     """返回 ``{loss, acc, f1}``，F1 用 macro 平均以抵消类别不均衡。"""
     model.eval()
     total, n_samples = 0.0, 0
@@ -95,12 +118,13 @@ def evaluate(model, loader, device, n_classes, max_batches=None) -> dict:
         if max_batches is not None and step >= max_batches:
             break
         inputs = inputs.squeeze(1).to(device, non_blocking=True)
-        logits = model(inputs)
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
+            logits = model(inputs)
         loss = F.cross_entropy(logits, labels.to(device, non_blocking=True))
 
         total += loss.item() * labels.size(0)
         n_samples += labels.size(0)
-        preds.append(logits.argmax(dim=1).cpu())
+        preds.append(logits.argmax(dim=1).float().cpu())
         targets.append(labels)
 
     if n_samples == 0:
@@ -136,6 +160,10 @@ def parse_args():
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="AdamW weight decay")
     parser.add_argument("--patience", type=int, default=15, help="验证 F1 无提升的容忍 epoch 数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
+    parser.add_argument(
+        "--no-amp", action="store_true",
+        help="关闭自动混合精度（默认按设备自动选择：CUDA→bf16/fp16，CPU→fp32）",
+    )
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 进程数；数据全在内存里，Windows 下 >0 会复制整份数据集，建议保持 0")
     # ---------- 输出 ----------
     parser.add_argument("--device", default=None, help="cpu / cuda，默认自动选择")
@@ -146,6 +174,8 @@ def parse_args():
     args = parser.parse_args()
     if args.folds < 2:
         parser.error("--folds 至少为 2")
+    if args.device and args.device.startswith("cuda") and not torch.cuda.is_available():
+        parser.error("指定了 --device cuda，但当前 torch 不支持 CUDA")
     return args
 
 
@@ -154,6 +184,14 @@ def main() -> None:
     set_seed(args.seed)
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     print(f"[Device] {device}")
+
+    amp_dtype, scaler = pick_precision(device, use_amp=not args.no_amp)
+    print(
+        "[Precision] "
+        + (f"{str(amp_dtype).replace('torch.', '')} autocast"
+           + (" + GradScaler" if scaler is not None else "")
+           if amp_dtype is not None else "float32 (全精度)")
+    )
 
     dataset = TFPEEGDataset(
         subject=args.subject,
@@ -224,8 +262,12 @@ def main() -> None:
             train_loss = train_one_epoch(
                 model, loaders["train"], optimizer, device, args.max_train_batches,
                 epoch=epoch, epochs=args.epochs,
+                amp_dtype=amp_dtype, scaler=scaler,
             )
-            val = evaluate(model, loaders["val"], device, n_classes, args.max_test_batches)
+            val = evaluate(
+                model, loaders["val"], device, n_classes,
+                args.max_test_batches, amp_dtype,
+            )
             scheduler.step(val["f1"])
             print(
                 f"  [epoch {epoch:03d}/{args.epochs}] 汇总 train_loss={train_loss:.4f} "
@@ -243,7 +285,10 @@ def main() -> None:
                     break
 
         model.load_state_dict(best_state)
-        test = evaluate(model, loaders["test"], device, n_classes, args.max_test_batches)
+        test = evaluate(
+            model, loaders["test"], device, n_classes,
+            args.max_test_batches, amp_dtype,
+        )
         seconds = time.time() - started
         rows.append({
             "fold": fold,
