@@ -79,7 +79,7 @@ def build_scheduler(optimizer, total_steps: int, warmup_steps: int):
 def train_one_epoch(
     model, loader, optimizer, device, max_batches=None, *,
     epoch=None, epochs=None, amp_dtype=None, scaler=None,
-    scheduler=None, grad_clip=None,
+    scheduler=None, grad_clip=None, label_smoothing: float = 0.0,
 ) -> dict:
     """跑一个 epoch，返回平均交叉熵与训练准确率；每个 step 打印一行。"""
     model.train()
@@ -96,7 +96,7 @@ def train_one_epoch(
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
             logits = model(inputs)
-        loss = F.cross_entropy(logits, labels)
+        loss = F.cross_entropy(logits, labels, label_smoothing=label_smoothing)
 
         optimizer.zero_grad(set_to_none=True)
         if scaler is not None:
@@ -173,16 +173,23 @@ def parse_args():
     parser.add_argument("--nn-factor", type=float, default=2.0, help="--sigma-mode nn 时 σ = nn_factor × 最近邻距离中位数")
     # ---------- 划分 ----------
     parser.add_argument("--folds", type=int, default=5, help="折数")
-    parser.add_argument("--val-ratio", type=float, default=0.1, help="每折从训练部分留出的验证比例")
+    parser.add_argument("--val-ratio", type=float, default=0.2, help="每折从训练部分留出的验证比例")
     parser.add_argument("--split-seed", type=int, default=0, help="折划分种子")
+    # ---------- 模型容量 ----------
+    parser.add_argument("--d-model", type=int, default=64, help="Transformer 隐层维度")
+    parser.add_argument("--n-layers", type=int, default=3, help="Transformer 编码层数")
+    parser.add_argument("--conv-dropout", type=float, default=0.3, help="多尺度卷积 dropout")
+    parser.add_argument("--transformer-dropout", type=float, default=0.2, help="Transformer dropout")
+    parser.add_argument("--mlp-dropout", type=float, default=0.3, help="门控残差 MLP dropout")
     # ---------- 训练 ----------
     parser.add_argument("--epochs", type=int, default=100, help="每折最大 epoch 数")
     parser.add_argument("--batch-size", type=int, default=64, help="batch size")
     parser.add_argument("--lr", type=float, default=3e-4, help="AdamW 峰值学习率")
-    parser.add_argument("--weight-decay", type=float, default=1e-4, help="AdamW weight decay")
+    parser.add_argument("--weight-decay", type=float, default=1e-2, help="AdamW weight decay")
+    parser.add_argument("--label-smoothing", type=float, default=0.1, help="交叉熵 label smoothing")
     parser.add_argument("--warmup-epochs", type=int, default=5, help="线性 warmup 的 epoch 数")
     parser.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪阈值；<=0 表示关闭")
-    parser.add_argument("--patience", type=int, default=30, help="验证 F1 无提升的容忍 epoch 数")
+    parser.add_argument("--patience", type=int, default=15, help="验证 loss 无改善的容忍 epoch 数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     parser.add_argument("--no-amp", action="store_true", help="关闭自动混合精度（默认按设备自动选择：CUDA→bf16/fp16，CPU→fp32）")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 进程数；数据全在内存里，Windows 下 >0 会复制整份数据集，建议保持 0")
@@ -235,7 +242,15 @@ def main() -> None:
         f"{dict(enumerate(dataset.class_ids))}"
     )
 
-    config = TFPCTNetConfig(n_times=dataset.data.shape[-1], n_classes=n_classes)
+    config = TFPCTNetConfig(
+        n_times=dataset.data.shape[-1],
+        n_classes=n_classes,
+        d_model=args.d_model,
+        n_layers=args.n_layers,
+        conv_dropout=args.conv_dropout,
+        transformer_dropout=args.transformer_dropout,
+        mlp_dropout=args.mlp_dropout,
+    )
     run_name = args.run_name or f"tfp_{args.subject}_{datetime.now():%Y%m%d_%H%M%S}"
     out_dir = args.out_dir / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -283,10 +298,15 @@ def main() -> None:
         grad_clip = None if args.grad_clip <= 0 else args.grad_clip
         if fold == 1:
             print(
+                f"  [Model] d_model={args.d_model} layers={args.n_layers} | "
+                f"参数 {sum(p.numel() for p in model.parameters()):,}"
+            )
+            print(
                 f"  [Schedule] {steps_per_epoch} step/epoch | warmup {warmup_steps} 步 "
                 f"-> cosine 至 {total_steps} 步 | lr={args.lr:g} clip={args.grad_clip:g}"
             )
 
+        best_loss = float("inf")
         best_f1, best_acc, best_epoch, best_state, no_improve = -1.0, 0.0, 0, None, 0
         best_train_loss, best_train_acc = 0.0, 0.0
         started = time.time()
@@ -296,6 +316,7 @@ def main() -> None:
                 epoch=epoch, epochs=args.epochs,
                 amp_dtype=amp_dtype, scaler=scaler,
                 scheduler=scheduler, grad_clip=grad_clip,
+                label_smoothing=args.label_smoothing,
             )
             val = evaluate(
                 model, loaders["val"], device, n_classes,
@@ -308,14 +329,17 @@ def main() -> None:
                 f"val_f1={val['f1']:.4f}"
             )
 
-            if val["f1"] > best_f1 + 1e-4:
-                best_f1, best_acc, best_epoch, no_improve = val["f1"], val["acc"], epoch, 0
+            # 早停看 val_loss：验证集只有几百条，macro-F1 抖动太大，容易被噪声选中过拟合点
+            if val["loss"] < best_loss - 1e-4:
+                best_loss = val["loss"]
+                best_f1, best_acc, best_epoch = val["f1"], val["acc"], epoch
                 best_train_loss, best_train_acc = train["loss"], train["acc"]
                 best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                no_improve = 0
             else:
                 no_improve += 1
                 if no_improve >= args.patience:
-                    print(f"  [Stop] 验证 F1 已 {args.patience} 个 epoch 未提升")
+                    print(f"  [Stop] 验证 loss 已 {args.patience} 个 epoch 未改善")
                     break
 
         model.load_state_dict(best_state)
@@ -329,6 +353,7 @@ def main() -> None:
             "best_epoch": best_epoch,
             "train_loss": best_train_loss,
             "train_acc": best_train_acc,
+            "val_loss": best_loss,
             "val_acc": best_acc,
             "val_f1": best_f1,
             "test_acc": test["acc"],
