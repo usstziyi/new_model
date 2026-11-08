@@ -1,10 +1,16 @@
-"""PMCNN 主干（拷贝自 ``plan_top10_random/model.py``，供基线实验对照用）。
+"""PMCNN 主干（源自 ``plan_top10_random/model.py``，供基线实验对照用）。
 
-保持与 ``plan_top10_random`` 完全一致的结构与初始化，两个实验的网络参数、
-state_dict 键名可以直接对比 / 互转。本文件不依赖任何其他实验目录。
+与源实现有两处差别：
 
-与源实现的唯一差别：``forward`` 接受数据管线直接给出的 ``(B, E, T)``，在内部
-补回单通道维，这样所有候选模型（PMCNN 与 braindecode）的输入格式统一。
+1. ``forward`` 接受数据管线直接给出的 ``(B, E, T)``，在内部补回单通道维，
+   这样所有候选模型（PMCNN 与 braindecode）的输入格式统一；
+2. 删掉了 Stem 末尾的 ``feature_expand``。它把每个虚拟电极的单条时间序列
+   展开成 ``C0`` 个通道，实质只是乘上 ``C0`` 个标量（秩恒为 1），紧接着又被
+   block1 的 1x1 卷积线性组合回去，两步合起来只是逐电极的仿射变换。现在
+   Stem 直接输出 ``(B, 1, E_out, T)``，block1 的卷积权重从 18,432 降到 2,256。
+   因此本文件的 ``state_dict`` 不能再与 ``plan_top10_random`` 直接互转。
+
+本文件不依赖任何其他实验目录。
 
 用法::
 
@@ -132,31 +138,27 @@ class PMCNNBlock(nn.Module):
 # ============================================================
 # 3. EEG Stem: 1 -> C0 时间卷积升维 + 真空间卷积
 # ------------------------------------------------------------
-# 改动: 用电极轴上的普通卷积 (groups=1) 做真正的空间滤波
-#   - 每个输出通道的 kernel 覆盖全部 E_in 个电极, 并混合全部 C0 个时间特征
-#   - E_out 个输出通道 = E_out 个真实的空间滤波器 (虚拟电极)
-#   - 再把每个虚拟电极的标量时间序列升维到 C0 个特征
-# 与旧实现相比, 空间信息不再被压成每通道 1 个深度卷积核
+# 空间信息不再被压成每通道 1 个深度卷积核: groups=1 的普通卷积
+# 让每个输出通道的 kernel 覆盖全部 E_in 个电极, 得到一个真正的
+# 空间滤波器 (虚拟电极)。
+# 每个虚拟电极只保留一条时间序列作为通道, 不再展开成 C0 个特征——
+# 逐电极展开只是给同一条序列乘 C0 个标量, 秩恒为 1, 不带来新信息。
 # ============================================================
 class EEGStem(nn.Module):
     """
-    原始 EEG (B, 1, E_in, T) -> (B, C0, E_out, T)
+    原始 EEG (B, 1, E_in, T) -> (B, 1, E_out, T)
 
-    三步:
-      1) 时间轴升维:    Conv2d(1, C0, (1, k))
-      2) 真空间卷积:    Conv2d(C0, E_out, (E_in, 1), groups=1)
-                       每个输出通道对所有电极和所有时间特征做加权求和,
-                       得到 E_out 个空间滤波后的时间序列 (B, E_out, 1, T)
-      3) 逐电极特征升维: Conv2d(E_out, E_out*C0, 1, groups=E_out)
-                       每个虚拟电极独立映射到 C0 个特征, 电极之间不混
-                       reshape -> (B, C0, E_out, T)
+    两步 + 一次维度换位:
+      1) 时间轴升维:  Conv2d(1, C0, (1, k))
+      2) 真空间卷积:  Conv2d(C0, E_out, (E_in, 1), groups=1)
+                      每个输出通道对所有电极和所有时间特征做加权求和,
+                      得到 E_out 个空间滤波后的时间序列 (B, E_out, 1, T)
+      3) E_out 作为空间轴、通道轴固定为 1: permute -> (B, 1, E_out, T)
+    电极轴始终是 E_out, 后续 block 只沿时间轴下采样。
     """
     def __init__(self, C0=64, k=7, E_in=122, E_out=16):
         super().__init__()
         assert E_out >= 1
-        self.C0 = C0
-        self.E_in = E_in
-        self.E_out = E_out
 
         # 1) 时间升维
         self.temporal = nn.Sequential(
@@ -172,25 +174,13 @@ class EEGStem(nn.Module):
         self.spatial_bn = nn.BatchNorm2d(E_out)
         self.spatial_act = nn.ReLU(inplace=True)
 
-        # 3) 每个虚拟电极升维到 C0 个特征 (groups=E_out: 电极之间独立)
-        self.feature_expand = nn.Sequential(
-            nn.Conv2d(E_out, E_out * C0, kernel_size=1, groups=E_out, bias=False),
-            nn.BatchNorm2d(E_out * C0),
-        )
-
     def forward(self, x):
         # x: (B, 1, E_in, T)
         x = self.temporal(x)                     # (B, C0, E_in, T)
 
         # 真空间卷积: 每个输出通道是一个覆盖全部电极的空间滤波器
         x = self.spatial_act(self.spatial_bn(self.spatial(x)))  # (B, E_out, 1, T)
-
-        # 逐电极升维: 输出通道序号 k = e*C0 + c, 与下面 reshape 的分组一致
-        B, _, _, T = x.shape
-        x = self.feature_expand(x)               # (B, E_out*C0, 1, T)
-        x = x.reshape(B, self.E_out, self.C0, 1, T).squeeze(3)
-        x = x.permute(0, 2, 1, 3).contiguous()   # (B, C0, E_out, T)
-        return x
+        return x.permute(0, 2, 1, 3)             # (B, 1, E_out, T)
 
 
 # ============================================================
@@ -236,12 +226,12 @@ class PMCNN(nn.Module):
     输出:  (B, num_classes)
 
     结构:
-        Stem: 1 -> C0, E_in -> E_out
-        Block1: C0 -> 128
+        Stem: 时间 1 -> C0, 电极 E_in -> E_out（输出通道轴为 1）
+        Block1: 1 -> 128
         Block2: 128 -> 256, 时间下采样 x2
         Block3: 256 -> 256, 时间下采样 x2
         Block4: 256 -> 512, 时间下采样 x2
-        [可选] 电极注意力池化
+        [可选] 电极注意力池化 (在 E_out 个虚拟电极上加权)
         GlobalAvgPool(T) -> Dropout -> FC
     """
     def __init__(self, num_classes=2, E_in=122, E_out=16,
@@ -250,7 +240,7 @@ class PMCNN(nn.Module):
 
         self.stem = EEGStem(C0=C0, k=stem_k, E_in=E_in, E_out=E_out)
 
-        self.block1 = PMCNNBlock(C0, 128)
+        self.block1 = PMCNNBlock(1, 128)
         self.block2 = PMCNNBlock(128, 256, stride=2)
         self.block3 = PMCNNBlock(256, 256, stride=2)
         self.block4 = PMCNNBlock(256, 512, stride=2)
@@ -280,7 +270,7 @@ class PMCNN(nn.Module):
     def forward(self, x):              # (B, E_in, T)
         if x.dim() == 3:
             x = x.unsqueeze(1)         # (B, 1, E_in, T)，数据管线直接给 3D 批次
-        x = self.stem(x)               # (B, C0, E_out, T)
+        x = self.stem(x)               # (B, 1, E_out, T)
         x = self.block1(x)             # (B, 128, E_out, T)
         x = self.block2(x)             # (B, 256, E_out, T/2)
         x = self.block3(x)             # (B, 256, E_out, T/4)

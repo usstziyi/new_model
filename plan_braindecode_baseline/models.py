@@ -4,8 +4,9 @@
 （见 :mod:`pmcnn`）在 ``forward`` 内部自行补回单通道维，因此工厂不再需要任何
 输入形状适配，所有候选模型都是 ``(B, E, T) -> (B, n_outputs)``。
 
-对照用的 PMCNN 是从 ``plan_top10_random/model.py`` 原样拷贝过来的实现
-（已经用来产出基线数字），保证两个实验的网络结构、初始化、参数完全一致。
+对照用的 PMCNN 源自 ``plan_top10_random/model.py``，结构与初始化一致，只删掉了
+Stem 末尾那个秩恒为 1 的 ``feature_expand``（见 :mod:`pmcnn`），参数量
+630,570 -> 611,290。
 
 模型清单只挑了 CPU 上跑得动的轻量结构（实测 64 通道 × 1651 点单样本前向
 2–12 ms），Deep4Net / EEGConformer / ATCNet / BIOT / BENDR 这类要么太重、要么
