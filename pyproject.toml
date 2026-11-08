@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "autoreject>=0.5.1",
+    "braindecode>=2.0.0",
     "einops>=0.8.2",
     "matplotlib>=3.11.2",
     "mne>=1.13.2",
