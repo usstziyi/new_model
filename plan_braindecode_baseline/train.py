@@ -439,7 +439,7 @@ def parse_args():
     parser.add_argument("--drop-prob", type=float, default=0.5, help="模型内部 dropout 概率")
     # ---------- 训练 ----------
     parser.add_argument("--epochs", type=int, default=50, help="最大 epoch 数")
-    parser.add_argument("--batch-size", type=int, default=32, help="batch size")
+    parser.add_argument("--batch-size", type=int, default=64, help="batch size")
     parser.add_argument("--no-amp", action="store_true", help="关闭 CUDA 混合精度（默认开启）")
     parser.add_argument("--lr", type=float, default=1e-3, help="Adam 学习率")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="Adam weight decay")
