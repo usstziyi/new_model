@@ -173,20 +173,21 @@ def parse_args():
     parser.add_argument("--nn-factor", type=float, default=2.0, help="--sigma-mode nn 时 σ = nn_factor × 最近邻距离中位数")
     # ---------- 划分 ----------
     parser.add_argument("--folds", type=int, default=5, help="折数")
-    parser.add_argument("--val-ratio", type=float, default=0.2, help="每折从训练部分留出的验证比例")
+    parser.add_argument("--only-fold", type=int, default=None, help="只跑指定的第 N 折（划分仍按 --folds），用于快速对照")
+    parser.add_argument("--val-ratio", type=float, default=0.15, help="每折从训练部分留出的验证比例")
     parser.add_argument("--split-seed", type=int, default=0, help="折划分种子")
     # ---------- 模型容量 ----------
     parser.add_argument("--d-model", type=int, default=64, help="Transformer 隐层维度")
     parser.add_argument("--n-layers", type=int, default=3, help="Transformer 编码层数")
-    parser.add_argument("--conv-dropout", type=float, default=0.3, help="多尺度卷积 dropout")
-    parser.add_argument("--transformer-dropout", type=float, default=0.2, help="Transformer dropout")
-    parser.add_argument("--mlp-dropout", type=float, default=0.3, help="门控残差 MLP dropout")
+    parser.add_argument("--conv-dropout", type=float, default=0.2, help="多尺度卷积 dropout")
+    parser.add_argument("--transformer-dropout", type=float, default=0.1, help="Transformer dropout")
+    parser.add_argument("--mlp-dropout", type=float, default=0.2, help="门控残差 MLP dropout")
     # ---------- 训练 ----------
     parser.add_argument("--epochs", type=int, default=100, help="每折最大 epoch 数")
     parser.add_argument("--batch-size", type=int, default=64, help="batch size")
     parser.add_argument("--lr", type=float, default=3e-4, help="AdamW 峰值学习率")
-    parser.add_argument("--weight-decay", type=float, default=1e-2, help="AdamW weight decay")
-    parser.add_argument("--label-smoothing", type=float, default=0.1, help="交叉熵 label smoothing")
+    parser.add_argument("--weight-decay", type=float, default=1e-3, help="AdamW weight decay")
+    parser.add_argument("--label-smoothing", type=float, default=0.0, help="交叉熵 label smoothing")
     parser.add_argument("--warmup-epochs", type=int, default=5, help="线性 warmup 的 epoch 数")
     parser.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪阈值；<=0 表示关闭")
     parser.add_argument("--patience", type=int, default=15, help="验证 loss 无改善的容忍 epoch 数")
@@ -202,6 +203,8 @@ def parse_args():
     args = parser.parse_args()
     if args.folds < 2:
         parser.error("--folds 至少为 2")
+    if args.only_fold is not None and not 1 <= args.only_fold <= args.folds:
+        parser.error(f"--only-fold 必须在 1..{args.folds} 之间")
     if args.device and args.device.startswith("cuda") and not torch.cuda.is_available():
         parser.error("指定了 --device cuda，但当前 torch 不支持 CUDA")
     return args
@@ -260,6 +263,8 @@ def main() -> None:
     for fold, (train_idx, test_idx) in enumerate(
         stratified_folds(dataset.labels, args.folds, args.split_seed), start=1
     ):
+        if args.only_fold is not None and fold != args.only_fold:
+            continue
         # 从训练部分再切出一份验证集，测试集全程不参与选模型
         fit_idx, val_idx = train_test_split(
             train_idx,
@@ -296,7 +301,7 @@ def main() -> None:
         warmup_steps = max(1, min(total_steps, steps_per_epoch * args.warmup_epochs))
         scheduler = build_scheduler(optimizer, total_steps, warmup_steps)
         grad_clip = None if args.grad_clip <= 0 else args.grad_clip
-        if fold == 1:
+        if not rows:
             print(
                 f"  [Model] d_model={args.d_model} layers={args.n_layers} | "
                 f"参数 {sum(p.numel() for p in model.parameters()):,}"
