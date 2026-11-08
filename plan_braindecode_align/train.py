@@ -41,7 +41,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from torch.utils.data import DataLoader, Subset
 
 from dataset import TOP_ROOT, TopClassEEGDataset, split_indices
@@ -246,7 +246,76 @@ def knn_diagnostic(z_train, y_train, z_eval, y_eval, k=5, num_classes=10):
             f1_score(targets, preds, average="macro",
                      labels=list(range(num_classes)), zero_division=0)
         ),
+        "preds": preds,
+        "targets": targets,
     }
+
+
+@torch.no_grad()
+def retrieval_top1_labels(z_query, bank, bank_labels):
+    """检索 top-1 候选文本所属的类别，作为“检索口径”的预测标签。
+
+    这是跨模态检索任务真正的预测方式：EEG 向量在文本库里找最相似的句子，
+    该句子的类别就是预测类别。与 kNN 口径相比，它衡量的是检索错误结构。
+    """
+    z = F.normalize(z_query.detach().float().cpu(), dim=-1)
+    bank = F.normalize(bank.detach().float().cpu(), dim=-1)
+    top1 = (z @ bank.t()).argmax(dim=1)
+    return bank_labels[top1.numpy()]
+
+
+def plot_confusion_heatmap(csv_path: Path, out_path: Path, title: str) -> None:
+    """读取 ``*_confusion_matrix.csv``，用 seaborn 画一张热力图。"""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib import rc_context
+
+    frame = pd.read_csv(csv_path, index_col=0)
+    side = max(6.0, 0.55 * len(frame))
+    with rc_context(
+        {
+            "font.sans-serif": ["Microsoft YaHei", "SimHei", "DejaVu Sans"],
+            "axes.unicode_minus": False,
+        }
+    ):
+        fig, ax = plt.subplots(figsize=(side, 0.85 * side))
+        sns.heatmap(
+            frame,
+            annot=True,
+            fmt="d",
+            cmap="Blues",
+            square=True,
+            linewidths=0.5,
+            linecolor="white",
+            cbar_kws={"label": "样本数"},
+            ax=ax,
+        )
+        ax.set_xlabel("预测类别")
+        ax.set_ylabel("真实类别")
+        ax.set_title(title)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+        plt.setp(ax.get_yticklabels(), rotation=0)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+    print(f"[Plot] 混淆矩阵热力图已保存: {out_path}")
+
+
+def save_confusion(
+    preds, targets, num_classes, class_names, out_dir, stem, title
+) -> Path:
+    """落 ``{stem}_confusion_matrix.csv`` 并画对应热力图，返回 csv 路径。"""
+    names = [class_names[index] for index in range(num_classes)]
+    matrix = confusion_matrix(targets, preds, labels=list(range(num_classes)))
+    csv_path = out_dir / f"{stem}_confusion_matrix.csv"
+    pd.DataFrame(matrix, index=names, columns=names).to_csv(
+        csv_path, encoding="utf-8-sig"
+    )
+    plot_confusion_heatmap(csv_path, out_dir / f"{stem}_confusion_matrix.png", title)
+    return csv_path
 
 
 def save_checkpoint(
@@ -287,8 +356,16 @@ def report_split(
     amp_dtype=None,
     train_gallery=None,
     knn_k=5,
+    class_names=None,
+    bank_labels=None,
 ):
-    """在指定划分上算检索指标（本划分内部 + 全量文本库）与 kNN 诊断。"""
+    """在指定划分上算检索指标（本划分内部 + 全量文本库）与 kNN 诊断。
+
+    若给了 ``class_names`` / ``bank_labels``，额外落两种口径的混淆矩阵：
+
+    - ``{split}_knn_confusion_matrix.*``：kNN 分类器的预测；
+    - ``{split}_retrieval_confusion_matrix.*``：top-1 检索到的文本所属类别。
+    """
     z_eeg, indices, labels = extract_embeddings(
         model, loader, device, max_batches, amp_dtype
     )
@@ -306,13 +383,32 @@ def report_split(
         "retrieval_full_bank": full_bank,
     }
 
+    out_dir.mkdir(parents=True, exist_ok=True)
+    can_confuse = class_names is not None and len(class_names) == num_classes
+
     if train_gallery is not None:
         z_train, y_train = train_gallery
-        report["knn"] = knn_diagnostic(
+        knn = knn_diagnostic(
             z_train, y_train, z_eeg, labels, k=knn_k, num_classes=num_classes
         )
+        knn_preds, knn_targets = knn.pop("preds"), knn.pop("targets")
+        report["knn"] = knn
+        if can_confuse:
+            cm_path = save_confusion(
+                knn_preds, knn_targets, num_classes, class_names, out_dir,
+                f"{split_name}_knn", f"kNN 混淆矩阵（{split_name}，{num_classes} 类）"
+            )
+            report["knn"]["confusion_matrix"] = cm_path.name
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if bank_labels is not None and can_confuse:
+        retrieval_preds = retrieval_top1_labels(z_eeg, text_bank, bank_labels)
+        cm_path = save_confusion(
+            retrieval_preds, bank_labels[indices.numpy()], num_classes,
+            class_names, out_dir, f"{split_name}_retrieval",
+            f"检索混淆矩阵（{split_name}，{num_classes} 类）"
+        )
+        report["retrieval_confusion_matrix"] = cm_path.name
+
     path = out_dir / f"{split_name}_retrieval.json"
     with path.open("w", encoding="utf-8") as handle:
         json.dump(report, handle, ensure_ascii=False, indent=2)
@@ -559,11 +655,13 @@ def run_experiment(
         model, val_loader, eval_text_bank, run_dir, "val",
         args.temperature, device, num_classes,
         args.max_val_batches, amp_dtype, train_gallery, args.knn_k,
+        dataset.class_names, dataset.labels,
     )
     test_report = report_split(
         model, test_loader, eval_text_bank, run_dir, "test",
         args.temperature, device, num_classes,
         args.max_test_batches, amp_dtype, train_gallery, args.knn_k,
+        dataset.class_names, dataset.labels,
     )
 
     test_full = test_report["retrieval_full_bank"]
