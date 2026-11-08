@@ -160,10 +160,7 @@ def parse_args():
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="AdamW weight decay")
     parser.add_argument("--patience", type=int, default=15, help="验证 F1 无提升的容忍 epoch 数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
-    parser.add_argument(
-        "--no-amp", action="store_true",
-        help="关闭自动混合精度（默认按设备自动选择：CUDA→bf16/fp16，CPU→fp32）",
-    )
+    parser.add_argument("--no-amp", action="store_true", help="关闭自动混合精度（默认按设备自动选择：CUDA→bf16/fp16，CPU→fp32）")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 进程数；数据全在内存里，Windows 下 >0 会复制整份数据集，建议保持 0")
     # ---------- 输出 ----------
     parser.add_argument("--device", default=None, help="cpu / cuda，默认自动选择")
