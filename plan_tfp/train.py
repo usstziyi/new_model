@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import time
 from datetime import datetime
@@ -64,13 +65,25 @@ def pick_precision(device: torch.device, use_amp: bool = True):
     return torch.float16, torch.amp.GradScaler("cuda")
 
 
+def build_scheduler(optimizer, total_steps: int, warmup_steps: int):
+    """线性 warmup + cosine 衰减，按 step 更新。"""
+    def lr_lambda(step: int) -> float:
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps
+        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
 def train_one_epoch(
     model, loader, optimizer, device, max_batches=None, *,
     epoch=None, epochs=None, amp_dtype=None, scaler=None,
-) -> float:
-    """跑一个 epoch，返回平均交叉熵损失；每个 step 打印一行。"""
+    scheduler=None, grad_clip=None,
+) -> dict:
+    """跑一个 epoch，返回平均交叉熵与训练准确率；每个 step 打印一行。"""
     model.train()
-    total, n_samples = 0.0, 0
+    total, n_correct, n_samples = 0.0, 0, 0
     n_batches = len(loader) if max_batches is None else min(len(loader), max_batches)
     tag = f"[epoch {epoch:03d}/{epochs}]" if epoch is not None else "[epoch]"
 
@@ -88,24 +101,33 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
         if scaler is not None:
             scaler.scale(loss).backward()
+            if grad_clip is not None:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             scaler.step(optimizer)
             scaler.update()
         else:
             loss.backward()
+            if grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
 
         total += loss.item() * labels.size(0)
+        n_correct += (logits.argmax(dim=1) == labels).sum().item()
         n_samples += labels.size(0)
         print(
             f"  {tag}[step {step + 1:02d}/{n_batches}] "
             f"loss={loss.item():.4f} avg={total / n_samples:.4f} "
+            f"acc={n_correct / n_samples:.4f} "
             f"lr={optimizer.param_groups[0]['lr']:.2e} "
             f"batch={labels.size(0)} ({time.time() - started:.2f}s)",
             flush=True,
         )
+        if scheduler is not None:
+            scheduler.step()
     if n_samples == 0:
         raise RuntimeError("训练集为空，检查 --max-train-batches")
-    return total / n_samples
+    return {"loss": total / n_samples, "acc": n_correct / n_samples}
 
 
 @torch.no_grad()
@@ -156,9 +178,11 @@ def parse_args():
     # ---------- 训练 ----------
     parser.add_argument("--epochs", type=int, default=100, help="每折最大 epoch 数")
     parser.add_argument("--batch-size", type=int, default=64, help="batch size")
-    parser.add_argument("--lr", type=float, default=1e-3, help="AdamW 学习率")
+    parser.add_argument("--lr", type=float, default=3e-4, help="AdamW 峰值学习率")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="AdamW weight decay")
-    parser.add_argument("--patience", type=int, default=15, help="验证 F1 无提升的容忍 epoch 数")
+    parser.add_argument("--warmup-epochs", type=int, default=5, help="线性 warmup 的 epoch 数")
+    parser.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪阈值；<=0 表示关闭")
+    parser.add_argument("--patience", type=int, default=30, help="验证 F1 无提升的容忍 epoch 数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     parser.add_argument("--no-amp", action="store_true", help="关闭自动混合精度（默认按设备自动选择：CUDA→bf16/fp16，CPU→fp32）")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 进程数；数据全在内存里，Windows 下 >0 会复制整份数据集，建议保持 0")
@@ -249,31 +273,44 @@ def main() -> None:
         optimizer = torch.optim.AdamW(
             model.parameters(), lr=args.lr, weight_decay=args.weight_decay
         )
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="max", factor=0.5, patience=5
+        steps_per_epoch = (
+            len(loaders["train"]) if args.max_train_batches is None
+            else min(len(loaders["train"]), args.max_train_batches)
         )
+        total_steps = max(1, steps_per_epoch * args.epochs)
+        warmup_steps = max(1, min(total_steps, steps_per_epoch * args.warmup_epochs))
+        scheduler = build_scheduler(optimizer, total_steps, warmup_steps)
+        grad_clip = None if args.grad_clip <= 0 else args.grad_clip
+        if fold == 1:
+            print(
+                f"  [Schedule] {steps_per_epoch} step/epoch | warmup {warmup_steps} 步 "
+                f"-> cosine 至 {total_steps} 步 | lr={args.lr:g} clip={args.grad_clip:g}"
+            )
 
         best_f1, best_acc, best_epoch, best_state, no_improve = -1.0, 0.0, 0, None, 0
+        best_train_loss, best_train_acc = 0.0, 0.0
         started = time.time()
         for epoch in range(1, args.epochs + 1):
-            train_loss = train_one_epoch(
+            train = train_one_epoch(
                 model, loaders["train"], optimizer, device, args.max_train_batches,
                 epoch=epoch, epochs=args.epochs,
                 amp_dtype=amp_dtype, scaler=scaler,
+                scheduler=scheduler, grad_clip=grad_clip,
             )
             val = evaluate(
                 model, loaders["val"], device, n_classes,
                 args.max_test_batches, amp_dtype,
             )
-            scheduler.step(val["f1"])
             print(
-                f"  [epoch {epoch:03d}/{args.epochs}] 汇总 train_loss={train_loss:.4f} "
+                f"  [epoch {epoch:03d}/{args.epochs}] 汇总 "
+                f"train_loss={train['loss']:.4f} train_acc={train['acc']:.4f} "
                 f"val_loss={val['loss']:.4f} val_acc={val['acc']:.4f} "
                 f"val_f1={val['f1']:.4f}"
             )
 
             if val["f1"] > best_f1 + 1e-4:
                 best_f1, best_acc, best_epoch, no_improve = val["f1"], val["acc"], epoch, 0
+                best_train_loss, best_train_acc = train["loss"], train["acc"]
                 best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             else:
                 no_improve += 1
@@ -290,6 +327,8 @@ def main() -> None:
         rows.append({
             "fold": fold,
             "best_epoch": best_epoch,
+            "train_loss": best_train_loss,
+            "train_acc": best_train_acc,
             "val_acc": best_acc,
             "val_f1": best_f1,
             "test_acc": test["acc"],
