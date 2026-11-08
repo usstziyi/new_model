@@ -48,13 +48,19 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def train_one_epoch(model, loader, optimizer, device, max_batches=None) -> float:
-    """跑一个 epoch，返回平均交叉熵损失。"""
+def train_one_epoch(
+    model, loader, optimizer, device, max_batches=None, *, epoch=None, epochs=None
+) -> float:
+    """跑一个 epoch，返回平均交叉熵损失；每个 step 打印一行。"""
     model.train()
     total, n_samples = 0.0, 0
+    n_batches = len(loader) if max_batches is None else min(len(loader), max_batches)
+    tag = f"[epoch {epoch:03d}/{epochs}]" if epoch is not None else "[epoch]"
+
     for step, (inputs, labels) in enumerate(loader):
         if max_batches is not None and step >= max_batches:
             break
+        started = time.time()
         inputs = inputs.squeeze(1).to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
@@ -67,6 +73,13 @@ def train_one_epoch(model, loader, optimizer, device, max_batches=None) -> float
 
         total += loss.item() * labels.size(0)
         n_samples += labels.size(0)
+        print(
+            f"  {tag}[step {step + 1:02d}/{n_batches}] "
+            f"loss={loss.item():.4f} avg={total / n_samples:.4f} "
+            f"lr={optimizer.param_groups[0]['lr']:.2e} "
+            f"batch={labels.size(0)} ({time.time() - started:.2f}s)",
+            flush=True,
+        )
     if n_samples == 0:
         raise RuntimeError("训练集为空，检查 --max-train-batches")
     return total / n_samples
@@ -209,12 +222,13 @@ def main() -> None:
         started = time.time()
         for epoch in range(1, args.epochs + 1):
             train_loss = train_one_epoch(
-                model, loaders["train"], optimizer, device, args.max_train_batches
+                model, loaders["train"], optimizer, device, args.max_train_batches,
+                epoch=epoch, epochs=args.epochs,
             )
             val = evaluate(model, loaders["val"], device, n_classes, args.max_test_batches)
             scheduler.step(val["f1"])
             print(
-                f"  [epoch {epoch:03d}] train_loss={train_loss:.4f} "
+                f"  [epoch {epoch:03d}/{args.epochs}] 汇总 train_loss={train_loss:.4f} "
                 f"val_loss={val['loss']:.4f} val_acc={val['acc']:.4f} "
                 f"val_f1={val['f1']:.4f}"
             )
