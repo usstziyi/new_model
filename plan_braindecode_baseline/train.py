@@ -12,6 +12,9 @@ braindecode 的经典 EEG 模型与项目自研的 PMCNN 放在一张表里比�
   核长度回到 250 Hz 设计尺度；``--target-sfreq 500`` 可关闭重采样；
 - ``--model all`` 可在一次进程内依次训练全部候选模型，数据集只加载一次，
   每个模型开始前重置随机种子，保证 batch 顺序一致；
+- 早停与学习率衰减分开计算 patience：``--lr-patience`` 控制衰减前的容忍
+  epoch 数，``--patience`` 控制早停；每次学习率衰减后早停计数清零，让模型有
+  完整的一个 patience 窗口适应新步长；
 - 结果写到 ``outputs/braindecode_baseline/<run>/<model>/``，并在 run 根目录
   汇总 ``summary.csv``。
 
@@ -338,7 +341,7 @@ def run_experiment(args, dataset, split, model_name, run_dir, device, amp_dtype,
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=max(1, args.patience // 3)
+        optimizer, mode="max", factor=0.5, patience=max(1, args.lr_patience)
     )
 
     checkpoint_path = run_dir / "best.pt"
@@ -361,7 +364,13 @@ def run_experiment(args, dataset, split, model_name, run_dir, device, amp_dtype,
         val_metrics = evaluate(
             model, val_loader, criterion, device, num_classes, args.max_val_batches, amp_dtype
         )
+        lr_before = optimizer.param_groups[0]["lr"]
         scheduler.step(val_metrics["macro_f1"])
+        lr_after = optimizer.param_groups[0]["lr"]
+        if lr_after < lr_before:
+            # 刚衰减：模型要几个 epoch 才适应新步长，早停计数重新起算
+            no_improve = 0
+            print(f"[LR] {lr_before:.2e} -> {lr_after:.2e}，早停计数重置")
 
         row = {
             "epoch": epoch,
@@ -370,7 +379,7 @@ def run_experiment(args, dataset, split, model_name, run_dir, device, amp_dtype,
             "val_loss": val_metrics["loss"],
             "val_accuracy": val_metrics["accuracy"],
             "val_macro_f1": val_metrics["macro_f1"],
-            "lr": optimizer.param_groups[0]["lr"],
+            "lr": lr_after,
             "seconds": time.time() - started,
         }
         history.append(row)
@@ -444,7 +453,8 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-3, help="Adam 学习率")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="Adam weight decay")
     parser.add_argument("--label-smoothing", type=float, default=0.0, help="交叉熵 label smoothing")
-    parser.add_argument("--patience", type=int, default=10, help="验证集 macro-F1 无提升的容忍 epoch 数")
+    parser.add_argument("--patience", type=int, default=10, help="验证集 macro-F1 无提升的容忍 epoch 数（每个学习率阶段独立计算）")
+    parser.add_argument("--lr-patience", type=int, default=3, help="学习率衰减前，macro-F1 无提升的容忍 epoch 数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     # ---------- 输出 ----------
     parser.add_argument("--device", default=None, help="cpu / cuda，默认自动选择")
