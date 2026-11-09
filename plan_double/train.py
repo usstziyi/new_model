@@ -335,8 +335,9 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=50, help="最大 epoch 数")
     parser.add_argument("--batch-size", type=int, default=32, help="单次前向的 batch size")
     parser.add_argument("--no-amp", action="store_true", help="关闭 CUDA 混合精度（默认开启）")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Adam 学习率")
+    parser.add_argument("--lr", type=float, default=3e-4, help="Adam 学习率（warmup 结束后的峰值）")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="Adam weight decay")
+    parser.add_argument("--warmup-epochs", type=int, default=3, help="线性 warmup 的 epoch 数，0 表示关闭")
     parser.add_argument("--label-smoothing", type=float, default=0.0, help="交叉熵 label smoothing")
     parser.add_argument("--patience", type=int, default=10, help="验证集 macro-F1 无提升的容忍 epoch 数")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
@@ -406,7 +407,6 @@ def main():
 
     model_kwargs = dict(
         num_channels=dataset.n_channels,
-        time_len=dataset.time_len,
         num_freq_bands=dataset.num_freq_bands,
         num_classes_token=args.num_class_tokens,
         num_classes=num_classes,
@@ -418,7 +418,8 @@ def main():
     model = TimeFreqDualBranchNet(**model_kwargs).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(
-        f"[Model] TimeFreqDualBranchNet | classes={num_classes} | C={dataset.n_channels} "
+        f"[Model] TimeFreqDualBranchNet | classes={num_classes} "
+        f"| C={dataset.n_channels} "
         f"T={dataset.time_len} F={dataset.num_freq_bands} | dim={args.dim} "
         f"depth={args.depth} heads={args.num_heads} N={args.num_class_tokens} "
         f"| params={n_params:,}"
@@ -458,6 +459,13 @@ def main():
 
     for epoch in range(1, args.epochs + 1):
         started = time.time()
+        # 线性 warmup：前 warmup_epochs 个 epoch 从 lr/暖机数 线性升到 lr，
+        # 期间不调用 ReduceLROnPlateau（否则会拿未收敛的 F1 去降 lr）
+        warming = args.warmup_epochs > 0 and epoch <= args.warmup_epochs
+        if warming:
+            for group in optimizer.param_groups:
+                group["lr"] = args.lr * epoch / args.warmup_epochs
+
         train_loss, train_n = train_one_epoch(
             model,
             train_loader,
@@ -477,7 +485,8 @@ def main():
             args.max_val_batches,
             amp_dtype,
         )
-        scheduler.step(val_metrics["macro_f1"])
+        if not warming:
+            scheduler.step(val_metrics["macro_f1"])
 
         row = {
             "epoch": epoch,
