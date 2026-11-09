@@ -28,7 +28,7 @@ NPERSEG = 500
 
 # 五个频段（Hz），顺序即输出最后一维的顺序
 BANDS: dict[str, tuple[float, float]] = {
-    "delta": (0.5, 4.0),
+    "delta": (1.0, 4.0),
     "theta": (4.0, 8.0),
     "alpha": (8.0, 14.0),
     "beta": (14.0, 30.0),
