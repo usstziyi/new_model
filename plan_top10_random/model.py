@@ -45,8 +45,7 @@ class MultiScaleConvLayer(nn.Module):
             nn.Conv2d(in_channels, mid_ch, kernel_size=1, stride=s, bias=False),
             nn.BatchNorm2d(mid_ch),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid_ch, branch_ch, kernel_size=(1, 3),
-                      padding=(0, 1), bias=False),
+            nn.Conv2d(mid_ch, branch_ch, kernel_size=(1, 3), padding=(0, 1), bias=False),
             nn.BatchNorm2d(branch_ch),
             nn.ReLU(inplace=True),
         )
@@ -55,8 +54,7 @@ class MultiScaleConvLayer(nn.Module):
             nn.Conv2d(in_channels, mid_ch, kernel_size=1, stride=s, bias=False),
             nn.BatchNorm2d(mid_ch),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid_ch, branch_ch, kernel_size=(1, 5),
-                      padding=(0, 2), bias=False),
+            nn.Conv2d(mid_ch, branch_ch, kernel_size=(1, 5), padding=(0, 2), bias=False),
             nn.BatchNorm2d(branch_ch),
             nn.ReLU(inplace=True),
         )
