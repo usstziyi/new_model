@@ -95,10 +95,7 @@ class PMCNNBlock(nn.Module):
         self.ms = MultiScaleConvLayer(in_channels, out_channels, reduction, stride)
 
         if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Conv2d(
-                in_channels, out_channels, kernel_size=1,
-                stride=(1, stride), bias=False,
-            )
+            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=(1, stride), bias=False)
         else:
             self.shortcut = nn.Identity()
 
@@ -263,12 +260,8 @@ class PMCNN(nn.Module):
 
     def _init_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                                        nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
+            if isinstance(m, nn.Conv2d) and m.groups == 1:
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.zeros_(m.bias)
