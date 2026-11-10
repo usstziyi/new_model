@@ -229,6 +229,46 @@ def save_checkpoint(
     )
 
 
+def plot_confusion_heatmap(csv_path: Path, out_path: Path) -> None:
+    """读取 ``confusion_matrix.csv``，用 seaborn 画一张混淆矩阵热力图。"""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib import rc_context
+
+    frame = pd.read_csv(csv_path, index_col=0)
+    side = max(6.0, 0.55 * len(frame))
+    with rc_context(
+        {
+            "font.sans-serif": ["Microsoft YaHei", "SimHei", "DejaVu Sans"],
+            "axes.unicode_minus": False,
+        }
+    ):
+        fig, ax = plt.subplots(figsize=(side, 0.85 * side))
+        sns.heatmap(
+            frame,
+            annot=True,
+            fmt="d",
+            cmap="Blues",
+            square=True,
+            linewidths=0.5,
+            linecolor="white",
+            cbar_kws={"label": "样本数"},
+            ax=ax,
+        )
+        ax.set_xlabel("预测类别")
+        ax.set_ylabel("真实类别")
+        ax.set_title(f"混淆矩阵（{len(frame)} 类）")
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+        plt.setp(ax.get_yticklabels(), rotation=0)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+    print(f"[Plot] 混淆矩阵热力图已保存: {out_path}")
+
+
 def report_test(
     model,
     loader,
@@ -260,9 +300,11 @@ def report_test(
     out_dir.mkdir(parents=True, exist_ok=True)
     names = [class_names[index] for index in range(num_classes)]
     matrix = confusion_matrix(targets, preds, labels=list(range(num_classes)))
+    matrix_csv = out_dir / "confusion_matrix.csv"
     pd.DataFrame(matrix, index=names, columns=names).to_csv(
-        out_dir / "confusion_matrix.csv", encoding="utf-8-sig"
+        matrix_csv, encoding="utf-8-sig"
     )
+    plot_confusion_heatmap(matrix_csv, out_dir / "confusion_matrix.png")
     with (out_dir / "test_metrics.json").open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, ensure_ascii=False, indent=2)
 
@@ -270,7 +312,10 @@ def report_test(
         f"[Test] loss={metrics['loss']:.4f} acc={metrics['accuracy']:.4f} "
         f"macro_f1={metrics['macro_f1']:.4f} weighted_f1={metrics['weighted_f1']:.4f}"
     )
-    print(f"[Saved] {out_dir / 'confusion_matrix.csv'} / {out_dir / 'test_metrics.json'}")
+    print(
+        f"[Saved] {matrix_csv} / {out_dir / 'confusion_matrix.png'} / "
+        f"{out_dir / 'test_metrics.json'}"
+    )
     return metrics
 
 
