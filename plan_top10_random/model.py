@@ -218,10 +218,42 @@ class ElectrodeAttentionPool(nn.Module):
 
 
 # ============================================================
-# 5. 完整 PMCNN 网络
+# 5. 时间注意力池化 (T 轴可学习加权)
+# ------------------------------------------------------------
+# AdaptiveAvgPool2d((1, None)) 只压 E 轴, 保留 T 轴,
+# 再用本模块在 T 轴上算 softmax 权重, 让网络自己挑关键时间片段。
+# 参数量: C*hidden + hidden (1x1 Conv)
+# ============================================================
+class TemporalAttentionPool(nn.Module):
+    """
+    在 T 轴上做 attention pooling:
+        输入: (B, C, 1, T)
+        输出: (B, C, 1, 1)
+    对每个 (B, C) 通道, 在 T 上算 softmax 权重后加权求和
+    """
+    def __init__(self, channels, hidden=None):
+        super().__init__()
+        hidden = hidden or max(channels // 4, 8)
+        self.score = nn.Sequential(
+            nn.Conv1d(channels, hidden, kernel_size=1),
+            nn.Tanh(),
+            nn.Conv1d(hidden, 1, kernel_size=1),
+        )
+
+    def forward(self, x):
+        # x: (B, C, 1, T)
+        x = x.squeeze(2)                          # (B, C, T)
+        w = torch.softmax(self.score(x), dim=-1)  # (B, 1, T)
+        out = (x * w).sum(dim=-1)                 # (B, C)
+        return out.view(*out.shape, 1, 1)         # (B, C, 1, 1)
+
+
+# ============================================================
+# 6. 完整 PMCNN 网络
 # ------------------------------------------------------------
 # 改动: E 参数真正传给 Stem 用于电极压缩;
-#       增加 E_out 与 use_electrode_attn 选项
+#       增加 E_out 与 use_electrode_attn 选项;
+#       E 轴全局池化后接 T 轴时间注意力池化
 # ============================================================
 class PMCNN(nn.Module):
     """
@@ -235,7 +267,7 @@ class PMCNN(nn.Module):
         Block3: 256 -> 256, 时间下采样 x2
         Block4: 256 -> 512, 时间下采样 x2
         [可选] 电极注意力池化
-        GlobalAvgPool(T) -> Dropout -> FC
+        GlobalAvgPool(E) -> 时间注意力池化(T) -> Dropout -> FC
     """
     def __init__(self, num_classes=2, E_in=122, E_out=16,
                  C0=64, stem_k=7, dropout=0.5, use_electrode_attn=False):
@@ -252,7 +284,8 @@ class PMCNN(nn.Module):
         if use_electrode_attn:
             self.electrode_pool = ElectrodeAttentionPool(512)
 
-        self.global_pool = nn.AdaptiveAvgPool2d(1)   # (B, 512, 1, 1)
+        self.global_pool = nn.AdaptiveAvgPool2d((1, None))  # (B, 512, 1, T/8)
+        self.temporal_pool = TemporalAttentionPool(512)    # (B, 512, 1, 1)
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(512, num_classes)
 
@@ -276,7 +309,8 @@ class PMCNN(nn.Module):
         if self.use_electrode_attn:
             x = self.electrode_pool(x) # (B, 512, 1, T/8)
 
-        x = self.global_pool(x)        # (B, 512, 1, 1)
+        x = self.global_pool(x)        # (B, 512, 1, T/8)
+        x = self.temporal_pool(x)      # (B, 512, 1, 1)
         x = torch.flatten(x, 1)        # (B, 512)
         x = self.dropout(x)
         x = self.fc(x)                 # (B, num_classes)
@@ -303,6 +337,7 @@ if __name__ == "__main__":
         y = model.block3(y); print(f"block3 : {tuple(y.shape)}")
         y = model.block4(y); print(f"block4 : {tuple(y.shape)}")
         y = model.global_pool(y); print(f"pool   : {tuple(y.shape)}")
+        y = model.temporal_pool(y); print(f"tpool  : {tuple(y.shape)}")
         y = torch.flatten(y, 1); print(f"flatten: {tuple(y.shape)}")
         out = model.fc(y);   print(f"输出   : {tuple(out.shape)}")
     print("=" * 60)
