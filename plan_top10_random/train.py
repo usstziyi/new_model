@@ -15,6 +15,7 @@
 
     # 默认 sub-01，8:1:1，随机种子 42
     uv run plan_top10_random/train.py
+    uv run plan_top10_random/train.py --use-64-channels
 
     # 快速试跑
     uv run plan_top10_random/train.py --epochs 3 \
