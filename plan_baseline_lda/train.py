@@ -1,4 +1,4 @@
-"""训练并评估线性基线：log 频带功率 + 收缩 LDA。
+"""训练并评估线性基线：log 频带功率 + 收缩 LDA / 逻辑回归 / RBF SVM。
 
 深度模型的验证/测试指标必须和这里的数字比较，过不了这条线就不该继续加大模型。
 
@@ -12,10 +12,13 @@
 
 特征与分类器见 ``model.py``：逐通道 5 个频段的 log 功率（默认相对功率），
 相对功率对逐试次 z-score 不敏感，因此这里关闭 ``normalize``，直接在 µV 上做 Welch。
+分类器由 ``--model`` 选择，默认收缩 LDA。
 
 用法::
 
     uv run plan_baseline_lda/train.py
+    uv run plan_baseline_lda/train.py --model svm      # RBF 核 SVM
+    uv run plan_baseline_lda/train.py --model logreg
     uv run plan_baseline_lda/train.py --use-64-channels
     uv run plan_baseline_lda/train.py --permutations 100 --folds 5
     uv run plan_baseline_lda/train.py --bands abs   # 改用绝对 log 功率
@@ -42,9 +45,15 @@ DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "baseline_lda"
 def cross_validate(X, y, model_name: str, folds: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """返回每折的 (accuracy, macro_f1)。"""
     accs, f1s = [], []
+    # 用于构造交叉验证的划分器，自身不会执行数据划分
+    # 与普通 KFold 不同，它会分别针对每个类别按比例切分，保证每折中各类别的比例与全集一致
     splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
+    # 真正划分
     for train_idx, test_idx in splitter.split(X, y):
-        model = make_model(model_name).fit(X[train_idx], y[train_idx])
+        model = make_model(model_name)
+        # 训练模型
+        model.fit(X[train_idx], y[train_idx])
+        # 预测测试集
         pred = model.predict(X[test_idx])
         accs.append(accuracy_score(y[test_idx], pred))
         f1s.append(f1_score(y[test_idx], pred, average="macro", zero_division=0))
@@ -54,17 +63,22 @@ def cross_validate(X, y, model_name: str, folds: int, seed: int) -> tuple[np.nda
 def permutation_null(X, y, model_name: str, folds: int, seed: int, n_perm: int) -> np.ndarray:
     """全局打乱标签后的 CV 准确率零分布。"""
     rng = np.random.default_rng(seed)
+    # null 来自统计学的 null hypothesis（原假设或零假设）
     null = np.empty(n_perm)
     for i in range(n_perm):
+        # 置换操作：全局打乱标签
         shuffled = rng.permutation(y)
         accs, _ = cross_validate(X, shuffled, model_name, folds, seed)
         null[i] = accs.mean()
+        print(f"  perm {i + 1:>3}/{n_perm}  null acc={null[i]:.4f}", flush=True)
+
     return null
 
 
 def holdout_report(X, y, train_idx, eval_sets, class_names, model_name):
     """在固定划分上训练一次，返回各评估集的指标。"""
-    model = make_model(model_name).fit(X[train_idx], y[train_idx])
+    model = make_model(model_name)
+    model.fit(X[train_idx], y[train_idx])
     out = {}
     for name, idx in eval_sets.items():
         pred = model.predict(X[idx])
@@ -85,14 +99,15 @@ def holdout_report(X, y, train_idx, eval_sets, class_names, model_name):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="log 频带功率 + 收缩 LDA 线性基线。")
+    parser = argparse.ArgumentParser(description="log 频带功率 + 线性分类器基线（LDA / logreg / SVM）。")
     parser.add_argument("--subject", default="sub-01", help="被试编号")
     parser.add_argument("--data-root", type=Path, default=TOP_ROOT, help="top10_imagine 根目录")
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--use-64-channels", action="store_true", help="只用 64 通道")
     parser.add_argument("--bands", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
+    parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器：lda 收缩 LDA（主基线）、logreg 逻辑回归或 svm RBF 核 SVM")
     parser.add_argument("--folds", type=int, default=5, help="交叉验证折数")
-    parser.add_argument("--permutations", type=int, default=30, help="置换检验次数，0 表示跳过")
+    parser.add_argument("--permutations", type=int, default=200, help="置换检验次数，0 表示跳过")
     parser.add_argument("--val-ratio", type=float, default=0.1, help="验证集比例（与 train.py 一致）")
     parser.add_argument("--test-ratio", type=float, default=0.1, help="测试集比例（与 train.py 一致）")
     parser.add_argument("--split-seed", type=int, default=42, help="划分种子（与 train.py 一致）")
@@ -117,6 +132,7 @@ def main():
     num_classes = len(class_names)
     sfreq = float(args.target_sfreq)
 
+    # feats: (N, 610)
     feats = extract_features(dataset.data.numpy(), sfreq, args.bands)
     print(
         f"[Features] {args.bands} log 频带功率 | {feats.shape[1]} 维 "
@@ -129,16 +145,17 @@ def main():
         y, args.val_ratio, args.test_ratio, args.split_seed
     )
     print(f"[Split] train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
+    # 在留出集上生成评估报告
     model, holdout = holdout_report(
-        feats, y, train_idx, {"val": val_idx, "test": test_idx}, class_names, "lda"
+        feats, y, train_idx, {"val": val_idx, "test": test_idx}, class_names, args.model
     )
     for name in ("val", "test"):
         m = holdout[name]
         print(
-            f"  [LDA] {name:<4} acc={m['accuracy']:.4f} macro_f1={m['macro_f1']:.4f} "
+            f"  [{args.model}] {name:<4} acc={m['accuracy']:.4f} macro_f1={m['macro_f1']:.4f} "
             f"weighted_f1={m['weighted_f1']:.4f} (n={m['n_samples']})"
         )
-    print("\n测试集分类报告:")
+    print(f"\n测试集分类报告（{args.model}）:")
     print(
         classification_report(
             y[test_idx],
@@ -153,21 +170,22 @@ def main():
     # ---------- 2. 5 折交叉验证 ----------
     print(f"=== {args.folds} 折交叉验证（全量 {len(y)} 条）===")
     cv_results = {}
-    for name in ("lda", "logreg"):
-        accs, f1s = cross_validate(feats, y, name, args.folds, args.seed)
-        cv_results[name] = {"accuracy": accs.tolist(), "macro_f1": f1s.tolist()}
-        print(
-            f"  {name:<7} acc={accs.mean():.4f} ± {accs.std():.4f}   "
-            f"macro_f1={f1s.mean():.4f} ± {f1s.std():.4f}"
-        )
+    accs, f1s = cross_validate(feats, y, args.model, args.folds, args.seed)
+    cv_results[args.model] = {"accuracy": accs.tolist(), "macro_f1": f1s.tolist()}
+    for i, (acc, f1) in enumerate(zip(accs, f1s), start=1):
+        print(f"  fold {i}  acc={acc:.4f}  macro_f1={f1:.4f}")
+    print(
+        f"  {args.model:<7} acc={accs.mean():.4f} ± {accs.std():.4f}   "
+        f"macro_f1={f1s.mean():.4f} ± {f1s.std():.4f}"
+    )
     print(f"  {'chance':<7} acc={1 / num_classes:.4f}")
 
     # ---------- 3. 置换零分布 ----------
     permutation = None
     if args.permutations > 0:
-        print(f"=== 置换检验（{args.permutations} 次，收缩 LDA）===")
-        null = permutation_null(feats, y, "lda", args.folds, args.seed, args.permutations)
-        observed = float(np.mean(cv_results["lda"]["accuracy"]))
+        print(f"=== 置换检验（{args.permutations} 次，{args.model}）===")
+        null = permutation_null(feats, y, args.model, args.folds, args.seed, args.permutations)
+        observed = float(np.mean(cv_results[args.model]["accuracy"]))
         p_value = float((np.sum(null >= observed) + 1) / (len(null) + 1))
         permutation = {
             "n": args.permutations,
@@ -195,6 +213,7 @@ def main():
         "n_features": int(feats.shape[1]),
         "bands": {k: list(v) for k, v in BANDS.items()},
         "band_mode": args.bands,
+        "model": args.model,
         "sfreq": sfreq,
         "use_64_channels": args.use_64_channels,
         "split": {
@@ -205,7 +224,7 @@ def main():
             "n_val": int(len(val_idx)),
             "n_test": int(len(test_idx)),
         },
-        "holdout_lda": holdout,
+        "holdout": holdout,
         "cv": cv_results,
         "permutation": permutation,
     }

@@ -13,6 +13,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
 BANDS = {
     "delta": (1, 4),
@@ -47,7 +48,7 @@ def extract_features(
             x=block, 
             fs=sfreq, 
             nperseg=NPERSEG, 
-            return_oneided=True,
+            return_onesided=True,
             axis=-1
         )
         psd = psd.astype(np.float32)
@@ -66,7 +67,14 @@ def extract_features(
 
 
 def make_model(name: str = "lda"):
-    """``lda``: 收缩 LDA（主基线）；``logreg``: 逻辑回归（参考）。"""
+    """``lda``: 收缩 LDA（主基线）；``logreg``: 逻辑回归；``svm``: RBF SVM。"""
     if name == "lda":
-        return make_pipeline(StandardScaler(), LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto"))
-    return make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
+        return make_pipeline(
+            StandardScaler(),
+            LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto"),
+        )
+    if name == "logreg":
+        return make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
+    if name == "svm":
+        return make_pipeline(StandardScaler(), SVC(kernel="rbf", C=1.0, gamma="scale"))
+    raise ValueError(f"未知模型: {name}")
