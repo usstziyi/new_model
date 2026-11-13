@@ -28,7 +28,7 @@ def extract_features(
     data: np.ndarray,
     sfreq: float,
     mode: str = "rel",
-    chunk: int = 256,
+    chunk: int = 100,
 ) -> np.ndarray:
     """逐通道频带功率特征，返回 ``(N, 通道数 × 频段数)``。
 
@@ -40,8 +40,16 @@ def extract_features(
     """
     feats: list[np.ndarray] = []
     for start in range(0, len(data), chunk):
+        # (n, 122, T)
         block = data[start : start + chunk]
-        freqs, psd = welch(block, fs=sfreq, nperseg=NPERSEG, axis=-1)
+        # psd:(n, 122, 129) ，单位 µV²/Hz
+        freqs, psd = welch(
+            x=block, 
+            fs=sfreq, 
+            nperseg=NPERSEG, 
+            return_oneided=True,
+            axis=-1
+        )
         psd = psd.astype(np.float32)
         if mode == "rel":
             psd = psd / (psd.sum(axis=-1, keepdims=True) + 1e-30)
@@ -52,15 +60,13 @@ def extract_features(
                     for lo, hi in BANDS.values()
                 ],
                 axis=1,
-            )
-        )
+            ) # (n, 通道数 × 频段数)=(100, 122 * 5)=(100, 610)
+        ) # (N, 610)
     return np.concatenate(feats, axis=0)
 
 
 def make_model(name: str = "lda"):
     """``lda``: 收缩 LDA（主基线）；``logreg``: 逻辑回归（参考）。"""
     if name == "lda":
-        return make_pipeline(
-            StandardScaler(), LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
-        )
+        return make_pipeline(StandardScaler(), LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto"))
     return make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
