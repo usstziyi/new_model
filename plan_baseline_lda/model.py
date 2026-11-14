@@ -69,10 +69,7 @@ def extract_features(
 def make_model(name: str = "lda"):
     """``lda``: 收缩 LDA（主基线）；``logreg``: 逻辑回归；``svm``: RBF SVM。"""
     if name == "lda":
-        return make_pipeline(
-            StandardScaler(),
-            LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto"),
-        )
+        return make_pipeline(StandardScaler(), LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto"))
     if name == "logreg":
         return make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
     if name == "svm":
