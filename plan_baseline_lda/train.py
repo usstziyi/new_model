@@ -12,10 +12,16 @@
 4. **频段扫描**（``--sweep-bands``）：all / 单频段 / 留一频段共 11 种配置，Welch 只算一次。
 
 特征与分类器见 ``model.py``：逐通道 5 个频段的 log 功率（默认相对功率），
+
+
 相对功率对逐试次 z-score 不敏感，因此这里关闭 ``normalize``，直接在 µV 上做 Welch。
 分类器由 ``--model`` 选择，默认收缩 LDA。
 
 用法::
+
+
+    uv run plan_baseline_lda/train.py --sweep-bands --run-name sweep_rel_lda
+
 
     uv run plan_baseline_lda/train.py
     uv run plan_baseline_lda/train.py --model svm      # RBF 核 SVM
