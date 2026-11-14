@@ -189,9 +189,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="按被试从 preprocessed_pkl 导出句表 CSV")
     parser.add_argument("--pkl-dir", type=Path, default=DEFAULT_PKL_DIR, help="preprocessed_pkl 目录")
     parser.add_argument("--textmaps", type=Path, default=DEFAULT_TEXTMAPS, help="textmaps.json 路径（句子 -> 类别 id）")
-    parser.add_argument(
-        "--classnumber", type=Path, default=DEFAULT_CLASSNUMBER, help="classnumber.json 路径（类别 id -> 类别名）"
-    )
+    parser.add_argument("--classnumber", type=Path, default=DEFAULT_CLASSNUMBER, help="classnumber.json 路径（类别 id -> 类别名）")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="CSV 输出目录")
     parser.add_argument("--subject", nargs="+", default=None, help="指定被试，可多个；默认自动发现全部")
     args = parser.parse_args()

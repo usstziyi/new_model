@@ -6,7 +6,7 @@
 
 用法::
 
-    uv run python scripts/export_top_classes.py
+    uv run python scripts/export_top_classes.py          # 默认遍历全部被试
     uv run python scripts/export_top_classes.py --task imagine --subject sub-01 --top-k 10
 
 每个输出文件形如 ``class_10.pkl``，内容是::
@@ -56,11 +56,11 @@ _FILE_PATTERN = re.compile(r"_task-(?P<task>[a-z]+)_run-(?P<run>\d+)_eeg\.pkl$")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="按类别导出 EEG 数据为独立 pkl。")
-    parser.add_argument("--subject", default="sub-01", help="被试编号，如 sub-01")
+    parser.add_argument("--subject", default=None, help="被试编号，如 sub-01；默认遍历全部")
     parser.add_argument("--task", default="imagine", choices=("reading", "imagine"), help="任务")
     parser.add_argument("--top-k", type=int, default=10, help="导出样本数最多的前 k 类")
     parser.add_argument("--runs", nargs="+", type=int, default=None, help="只导出这些 run（默认全部）")
-    parser.add_argument("--out-dir", type=Path, default=None, help="输出目录，默认 datasets/top<k>_<task>/<subject>")
+    parser.add_argument("--out-dir", type=Path, default=None, help="输出根目录，实际写入 <out-dir>/<subject>；默认 datasets/top<k>_<task>")
     parser.add_argument("--dtype", choices=("float32", "float64"), default="float32", help="eeg 数组的 dtype")
     return parser.parse_args()
 
@@ -99,10 +99,19 @@ def extract_eeg(features) -> np.ndarray:
     return array[:N_EEG_CHANNELS].astype(np.float64)
 
 
-def main():
-    args = parse_args()
-    label, pkl_task = TASK_ALIASES[args.task]
-    csv_path = CSV_ROOT / f"{args.subject}_{label}.csv"
+def resolve_subjects(args, label: str) -> list[str]:
+    """未指定 --subject 时，遍历 CSV 目录下所有被试。"""
+    if args.subject:
+        return [args.subject]
+    suffix = f"_{label}.csv"
+    subjects = sorted(path.name[: -len(suffix)] for path in CSV_ROOT.glob(f"sub-*{suffix}"))
+    if not subjects:
+        raise FileNotFoundError(f"{CSV_ROOT} 下没有找到匹配 sub-*{suffix} 的文件")
+    return subjects
+
+
+def process_subject(args, subject: str, label: str, pkl_task: str) -> None:
+    csv_path = CSV_ROOT / f"{subject}_{label}.csv"
     rows = read_rows(csv_path)
 
     counts = Counter(int(row[LABEL_COLUMN]) for row in rows)
@@ -124,10 +133,11 @@ def main():
     for row in rows:
         by_run[int(row["run"])].append(row)
 
-    eeg_dir = PKL_ROOT / args.subject / "eeg"
-    pkl_paths = index_pkls(eeg_dir, args.subject, pkl_task)
+    eeg_dir = PKL_ROOT / subject / "eeg"
+    pkl_paths = index_pkls(eeg_dir, subject, pkl_task)
 
-    out_dir = args.out_dir or (PROJECT_ROOT / "datasets" / f"top{args.top_k}_{args.task}" / args.subject)
+    base_out = args.out_dir or (PROJECT_ROOT / "datasets" / f"top{args.top_k}_{args.task}")
+    out_dir = base_out / subject
     out_dir.mkdir(parents=True, exist_ok=True)
 
     samples: dict[int, list[np.ndarray]] = {class_id: [] for class_id in wanted}
@@ -169,7 +179,7 @@ def main():
             raise RuntimeError(f"type_number={class_id} 的试次长度不一致: {sorted(lengths)}")
         eeg = np.stack(arrays)
         payload = {
-            "subject": args.subject,
+            "subject": subject,
             "task": args.task,
             "type_number": class_id,
             "type_name": class_names.get(class_id, ""),
@@ -187,7 +197,17 @@ def main():
         print(f"[Save] {out_path.name}  shape={eeg.shape}  {out_path.stat().st_size / 1e6:.1f} MB")
         samples[class_id] = []  # 尽早释放内存
 
-    print(f"[Done] {len(top)} 个文件写入 {out_dir}，合计 {total_bytes / 1e6:.1f} MB")
+    print(f"[Done] {subject}: {len(top)} 个文件写入 {out_dir}，合计 {total_bytes / 1e6:.1f} MB")
+
+
+def main():
+    args = parse_args()
+    label, pkl_task = TASK_ALIASES[args.task]
+    subjects = resolve_subjects(args, label)
+    print(f"[Subjects] 共 {len(subjects)} 个：{', '.join(subjects)}")
+    for subject in subjects:
+        print(f"\n===== {subject} =====")
+        process_subject(args, subject, label, pkl_task)
 
 
 if __name__ == "__main__":
