@@ -8,7 +8,8 @@
    的 8:1:1 划分，在 val / test 上给出准确率与 macro-F1，可直接和 PMCNN 的
    ``history.csv`` 对比；
 2. **5 折交叉验证**：全量 2459 条上的稳定估计（均值 ± 标准差）；
-3. **置换零分布**：全局打乱标签后重复 5 折，给出随机水平与经验 p 值。
+3. **置换零分布**：全局打乱标签后重复 5 折，给出随机水平与经验 p 值；
+4. **频段扫描**（``--sweep-bands``）：all / 单频段 / 留一频段共 11 种配置，Welch 只算一次。
 
 特征与分类器见 ``model.py``：逐通道 5 个频段的 log 功率（默认相对功率），
 相对功率对逐试次 z-score 不敏感，因此这里关闭 ``normalize``，直接在 µV 上做 Welch。
@@ -21,7 +22,8 @@
     uv run plan_baseline_lda/train.py --model logreg
     uv run plan_baseline_lda/train.py --use-64-channels
     uv run plan_baseline_lda/train.py --permutations 100 --folds 5
-    uv run plan_baseline_lda/train.py --bands abs   # 改用绝对 log 功率
+    uv run plan_baseline_lda/train.py --bands-mode abs      # 改用绝对 log 功率
+    uv run plan_baseline_lda/train.py --sweep-bands         # 单频段 + 留一频段扫描
 """
 
 from __future__ import annotations
@@ -70,7 +72,6 @@ def permutation_null(X, y, model_name: str, folds: int, seed: int, n_perm: int) 
         shuffled = rng.permutation(y)
         accs, _ = cross_validate(X, shuffled, model_name, folds, seed)
         null[i] = accs.mean()
-        print(f"  perm {i + 1:>3}/{n_perm}  null acc={null[i]:.4f}", flush=True)
 
     return null
 
@@ -104,7 +105,8 @@ def parse_args():
     parser.add_argument("--data-root", type=Path, default=TOP_ROOT, help="top10_imagine 根目录")
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--use-64-channels", action="store_true", help="只用 64 通道")
-    parser.add_argument("--bands", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
+    parser.add_argument("--bands-mode", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
+    parser.add_argument("--sweep-bands", action="store_true", help="逐个频段扫描（all / 单频段 / 留一频段），Welch 只算一次")
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器：lda 收缩 LDA（主基线）、logreg 逻辑回归或 svm RBF 核 SVM")
     parser.add_argument("--folds", type=int, default=5, help="交叉验证折数")
     parser.add_argument("--permutations", type=int, default=200, help="置换检验次数，0 表示跳过")
@@ -115,6 +117,156 @@ def parse_args():
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出根目录")
     parser.add_argument("--run-name", default=None, help="本次实验目录名，默认按时间命名")
     return parser.parse_args()
+
+
+def band_columns(only, exclude, channels_per_band: int) -> tuple[np.ndarray, list[str]]:
+    """返回按 ``BANDS`` 顺序排列的列索引，以及实际保留的频段名。"""
+    bands = list(BANDS)
+    kept = [
+        name
+        for name in bands
+        if (not only or name in only) and name not in (exclude or [])
+    ]
+    if not kept:
+        raise SystemExit("频段选择结果为空")
+
+    index = []
+    for name in kept:
+        start = bands.index(name) * channels_per_band
+        index.append(np.arange(start, start + channels_per_band))
+    return np.concatenate(index), kept
+
+
+def evaluate(
+    feats: np.ndarray,
+    y: np.ndarray,
+    class_names: list[str],
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+    test_idx: np.ndarray,
+    model_name: str,
+    folds: int,
+    seed: int,
+    n_perm: int,
+) -> tuple:
+    """一次完整评估：holdout + 交叉验证 + 置换零分布。"""
+    model, holdout = holdout_report(
+        feats, y, train_idx, {"val": val_idx, "test": test_idx}, class_names, model_name
+    )
+    accs, f1s = cross_validate(feats, y, model_name, folds, seed)
+    permutation = None
+    if n_perm > 0:
+        null = permutation_null(feats, y, model_name, folds, seed, n_perm)
+        observed = float(accs.mean())
+        permutation = {
+            "n": n_perm,
+            "null_mean": float(null.mean()),
+            "null_std": float(null.std()),
+            "null_p95": float(np.percentile(null, 95)),
+            "observed": observed,
+            "z_score": float((observed - null.mean()) / (null.std() + 1e-12)),
+            "p_value": float((np.sum(null >= observed) + 1) / (len(null) + 1)),
+            "null_samples": null.tolist(),
+        }
+    return model, {
+        "n_features": int(feats.shape[1]),
+        "holdout": holdout,
+        "cv": {model_name: {"accuracy": accs.tolist(), "macro_f1": f1s.tolist()}},
+        "permutation": permutation,
+    }
+
+
+def sweep_configs(channels_per_band: int) -> list[tuple[str, np.ndarray]]:
+    """all + 5 个单频段 + 5 个留一频段，共 11 种列选择。"""
+    bands = list(BANDS)
+    configs = [("all", np.arange(len(bands) * channels_per_band))]
+    configs += [(f"only:{name}", band_columns([name], None, channels_per_band)[0]) for name in bands]
+    configs += [(f"drop:{name}", band_columns(None, [name], channels_per_band)[0]) for name in bands]
+    return configs
+
+
+def print_sweep_table(rows: list[dict]) -> None:
+    """打印频段扫描的汇总表。"""
+    header = (
+        f"{'config':<12}{'n_feat':>7}{'val':>8}{'test':>8}"
+        f"{'cv_acc':>9}{'std':>7}{'macroF1':>9}{'p':>8}"
+    )
+    print("\n=== 频段扫描汇总 ===")
+    print(header)
+    print("-" * len(header))
+    for row in rows:
+        p_value = f"{row['p_value']:.4f}" if row["p_value"] is not None else "-"
+        print(
+            f"{row['config']:<12}{row['n_features']:>7}{row['val_accuracy']:>8.4f}"
+            f"{row['test_accuracy']:>8.4f}{row['cv_accuracy_mean']:>9.4f}"
+            f"{row['cv_accuracy_std']:>7.4f}{row['cv_macro_f1_mean']:>9.4f}{p_value:>8}"
+        )
+
+
+def run_sweep(feats, y, class_names, train_idx, val_idx, test_idx, args, out_dir: Path) -> None:
+    """逐个频段评估，并把汇总写入 ``sweep.json``。"""
+    rows = []
+    for label, columns in sweep_configs(feats.shape[1] // len(BANDS)):
+        print(f"\n=== [{label}] {len(columns)} 维 ===", flush=True)
+        _, result = evaluate(
+            feats[:, columns],
+            y,
+            class_names,
+            train_idx,
+            val_idx,
+            test_idx,
+            args.model,
+            args.folds,
+            args.seed,
+            args.permutations,
+        )
+        holdout = result["holdout"]
+        accs = np.asarray(result["cv"][args.model]["accuracy"])
+        f1s = np.asarray(result["cv"][args.model]["macro_f1"])
+        permutation = result["permutation"]
+        rows.append(
+            {
+                "config": label,
+                "n_features": result["n_features"],
+                "val_accuracy": holdout["val"]["accuracy"],
+                "test_accuracy": holdout["test"]["accuracy"],
+                "cv_accuracy_mean": float(accs.mean()),
+                "cv_accuracy_std": float(accs.std()),
+                "cv_macro_f1_mean": float(f1s.mean()),
+                "p_value": permutation["p_value"] if permutation else None,
+                "detail": result,
+            }
+        )
+        print(
+            f"  val={rows[-1]['val_accuracy']:.4f} test={rows[-1]['test_accuracy']:.4f} "
+            f"cv={rows[-1]['cv_accuracy_mean']:.4f}±{rows[-1]['cv_accuracy_std']:.4f}",
+            flush=True,
+        )
+
+    print_sweep_table(rows)
+    payload = {
+        "subject": args.subject,
+        "classes": class_names,
+        "n_samples": int(len(y)),
+        "bands": {k: list(v) for k, v in BANDS.items()},
+        "band_mode": args.bands_mode,
+        "model": args.model,
+        "sfreq": float(args.target_sfreq),
+        "use_64_channels": args.use_64_channels,
+        "split": {
+            "val_ratio": args.val_ratio,
+            "test_ratio": args.test_ratio,
+            "seed": args.split_seed,
+            "n_train": int(len(train_idx)),
+            "n_val": int(len(val_idx)),
+            "n_test": int(len(test_idx)),
+        },
+        "sweep": rows,
+    }
+    sweep_path = out_dir / "sweep.json"
+    with sweep_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    print(f"[Saved] {sweep_path}")
 
 
 def main():
@@ -133,10 +285,11 @@ def main():
     sfreq = float(args.target_sfreq)
 
     # feats: (N, 610)
-    feats = extract_features(dataset.data.numpy(), sfreq, args.bands)
+    feats = extract_features(dataset.data.numpy(), sfreq, args.bands_mode)
+    channels_per_band = feats.shape[1] // len(BANDS)
     print(
-        f"[Features] {args.bands} log 频带功率 | {feats.shape[1]} 维 "
-        f"({feats.shape[1] // len(BANDS)} 通道 × {len(BANDS)} 频段) | sfreq={sfreq:g} Hz",
+        f"[Features] {args.bands_mode} log 频带功率 | {feats.shape[1]} 维 "
+        f"({channels_per_band} 通道 × {len(BANDS)} 频段) | sfreq={sfreq:g} Hz",
         flush=True,
     )
 
@@ -145,10 +298,20 @@ def main():
         y, args.val_ratio, args.test_ratio, args.split_seed
     )
     print(f"[Split] train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
-    # 在留出集上生成评估报告
-    model, holdout = holdout_report(
-        feats, y, train_idx, {"val": val_idx, "test": test_idx}, class_names, args.model
+
+    run_name = args.run_name or f"baseline_{datetime.now():%Y%m%d_%H%M%S}"
+    out_dir = args.out_dir / run_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.sweep_bands:
+        run_sweep(feats, y, class_names, train_idx, val_idx, test_idx, args, out_dir)
+        return
+
+    model, result = evaluate(
+        feats, y, class_names, train_idx, val_idx, test_idx,
+        args.model, args.folds, args.seed, args.permutations,
     )
+    holdout = result["holdout"]
     for name in ("val", "test"):
         m = holdout[name]
         print(
@@ -169,9 +332,8 @@ def main():
 
     # ---------- 2. 5 折交叉验证 ----------
     print(f"=== {args.folds} 折交叉验证（全量 {len(y)} 条）===")
-    cv_results = {}
-    accs, f1s = cross_validate(feats, y, args.model, args.folds, args.seed)
-    cv_results[args.model] = {"accuracy": accs.tolist(), "macro_f1": f1s.tolist()}
+    accs = np.asarray(result["cv"][args.model]["accuracy"])
+    f1s = np.asarray(result["cv"][args.model]["macro_f1"])
     for i, (acc, f1) in enumerate(zip(accs, f1s), start=1):
         print(f"  fold {i}  acc={acc:.4f}  macro_f1={f1:.4f}")
     print(
@@ -181,38 +343,22 @@ def main():
     print(f"  {'chance':<7} acc={1 / num_classes:.4f}")
 
     # ---------- 3. 置换零分布 ----------
-    permutation = None
-    if args.permutations > 0:
-        print(f"=== 置换检验（{args.permutations} 次，{args.model}）===")
-        null = permutation_null(feats, y, args.model, args.folds, args.seed, args.permutations)
-        observed = float(np.mean(cv_results[args.model]["accuracy"]))
-        p_value = float((np.sum(null >= observed) + 1) / (len(null) + 1))
-        permutation = {
-            "n": args.permutations,
-            "null_mean": float(null.mean()),
-            "null_std": float(null.std()),
-            "null_p95": float(np.percentile(null, 95)),
-            "observed": observed,
-            "z_score": float((observed - null.mean()) / (null.std() + 1e-12)),
-            "p_value": p_value,
-            "null_samples": null.tolist(),
-        }
+    permutation = result["permutation"]
+    if permutation is not None:
         print(
-            f"  null acc={null.mean():.4f} ± {null.std():.4f} p95={np.percentile(null, 95):.4f}"
-            f"   observed={observed:.4f}   z={permutation['z_score']:.1f}   p={p_value:.4f}"
+            f"  null acc={permutation['null_mean']:.4f} ± {permutation['null_std']:.4f} "
+            f"p95={permutation['null_p95']:.4f}   observed={permutation['observed']:.4f}   "
+            f"z={permutation['z_score']:.1f}   p={permutation['p_value']:.4f}"
         )
 
     # ---------- 输出 ----------
-    run_name = args.run_name or f"baseline_{datetime.now():%Y%m%d_%H%M%S}"
-    out_dir = args.out_dir / run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "subject": args.subject,
         "classes": class_names,
         "n_samples": int(len(y)),
-        "n_features": int(feats.shape[1]),
+        "n_features": result["n_features"],
         "bands": {k: list(v) for k, v in BANDS.items()},
-        "band_mode": args.bands,
+        "band_mode": args.bands_mode,
         "model": args.model,
         "sfreq": sfreq,
         "use_64_channels": args.use_64_channels,
@@ -225,7 +371,7 @@ def main():
             "n_test": int(len(test_idx)),
         },
         "holdout": holdout,
-        "cv": cv_results,
+        "cv": result["cv"],
         "permutation": permutation,
     }
     metrics_path = out_dir / "metrics.json"
