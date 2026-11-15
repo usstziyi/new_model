@@ -1,0 +1,114 @@
+[Cache] sub-01 class=2 n=251 (251, 122, 1251)
+[Cache] sub-02 class=2 n=261 (261, 122, 1251)
+[Cache] sub-01 class=10 n=291 (291, 122, 1251)
+[Cache] sub-02 class=10 n=309 (309, 122, 1251)
+[Cache] sub-01 class=13 n=302 (302, 122, 1251)
+[Cache] sub-02 class=13 n=302 (302, 122, 1251)
+[Cache] sub-01 class=14 n=215 (215, 122, 1251)
+[Cache] sub-02 class=14 n=205 (205, 122, 1251)
+[Cache] sub-01 class=19 n=258 (258, 122, 1251)
+[Cache] sub-02 class=19 n=248 (248, 122, 1251)
+[Cache] sub-01 class=21 n=219 (219, 122, 1251)
+[Cache] sub-02 class=21 n=211 (211, 122, 1251)
+[Cache] sub-01 class=24 n=261 (261, 122, 1251)
+[Cache] sub-02 class=24 n=258 (258, 122, 1251)
+[Cache] sub-01 class=26 n=255 (255, 122, 1251)
+[Cache] sub-02 class=26 n=256 (256, 122, 1251)
+[Cache] sub-01 class=31 n=245 (245, 122, 1251)
+[Cache] sub-02 class=31 n=253 (253, 122, 1251)
+[Cache] sub-01 class=32 n=206 (206, 122, 1251)
+[Cache] sub-02 class=32 n=212 (212, 122, 1251)
+[Cache] sub-01 done (2503, 122, 1251)
+[Cache] sub-02 done (2515, 122, 1251)
+[Features] sub-02 [('bp', (2515, 610)), ('bpwin', (2515, 2440)), ('hjorth', (2515, 366)), ('erp', (2515, 12810))]
+[Features] sub-01 [('bp', (2503, 610)), ('bpwin', (2503, 2440)), ('hjorth', (2503, 366)), ('erp', (2503, 12810))]
+[sub-02] fold 0 done
+[sub-01] fold 0 done
+[sub-01] fold 1 done
+[sub-02] fold 1 done
+[sub-01] fold 2 done
+[sub-02] fold 2 done
+[sub-01] fold 3 done
+[sub-02] fold 3 done
+[sub-01] fold 4 done
+[sub-01] best=win_4 acc=0.126 matched=0.124
+[sub-02] fold 4 done
+[sub-02] best=hjorth_lda acc=0.133 matched=0.135
+[Cache] sub-03 class=2 n=222 (222, 122, 1251)
+[Cache] sub-04 class=2 n=258 (258, 122, 1251)
+[Cache] sub-03 class=10 n=268 (268, 122, 1251)
+[Cache] sub-03 class=13 n=230 (230, 122, 1251)
+[Cache] sub-04 class=10 n=308 (308, 122, 1251)
+[Cache] sub-03 class=14 n=181 (181, 122, 1251)
+[Cache] sub-04 class=13 n=290 (290, 122, 1251)
+[Cache] sub-03 class=19 n=199 (199, 122, 1251)
+[Cache] sub-04 class=14 n=211 (211, 122, 1251)
+[Cache] sub-03 class=21 n=190 (190, 122, 1251)
+[Cache] sub-03 class=24 n=211 (211, 122, 1251)
+[Cache] sub-04 class=19 n=254 (254, 122, 1251)
+[Cache] sub-03 class=26 n=218 (218, 122, 1251)
+[Cache] sub-04 class=21 n=220 (220, 122, 1251)
+[Cache] sub-03 class=30 n=179 (179, 122, 1251)
+[Cache] sub-04 class=24 n=259 (259, 122, 1251)
+[Cache] sub-03 class=31 n=217 (217, 122, 1251)
+[Cache] sub-03 done (2115, 122, 1251)
+[Cache] sub-04 class=26 n=255 (255, 122, 1251)
+[Cache] sub-04 class=31 n=248 (248, 122, 1251)
+[Cache] sub-04 class=32 n=204 (204, 122, 1251)
+[Cache] sub-04 done (2507, 122, 1251)
+[Features] sub-03 [('bp', (2115, 610)), ('bpwin', (2115, 2440)), ('hjorth', (2115, 366)), ('erp', (2115, 12810))]
+[sub-03] fold 0 done
+[Features] sub-04 [('bp', (2507, 610)), ('bpwin', (2507, 2440)), ('hjorth', (2507, 366)), ('erp', (2507, 12810))]
+[sub-03] fold 1 done
+[sub-03] fold 2 done
+[sub-04] fold 0 done
+[sub-03] fold 3 done
+[sub-04] fold 1 done
+[sub-03] fold 4 done
+[sub-03] best=band_beta acc=0.136 matched=0.141
+[Cache] sub-05 class=2 n=202 (202, 122, 1251)
+[Cache] sub-05 class=10 n=273 (273, 122, 1251)
+[sub-04] fold 2 done
+[Cache] sub-05 class=13 n=231 (231, 122, 1251)
+[Cache] sub-05 class=14 n=170 (170, 122, 1251)
+[Cache] sub-05 class=19 n=193 (193, 122, 1251)
+[Cache] sub-05 class=21 n=178 (178, 122, 1251)
+[Cache] sub-05 class=24 n=203 (203, 122, 1251)
+[sub-04] fold 3 done
+[Cache] sub-05 class=26 n=221 (221, 122, 1251)
+[Cache] sub-05 class=31 n=192 (192, 122, 1251)
+[Cache] sub-05 class=32 n=179 (179, 122, 1251)
+[Cache] sub-05 done (2042, 122, 1251)
+[sub-04] fold 4 done
+[sub-04] best=band_beta acc=0.145 matched=0.144
+[Features] sub-05 [('bp', (2042, 610)), ('bpwin', (2042, 2440)), ('hjorth', (2042, 366)), ('erp', (2042, 12810))]
+[sub-05] fold 0 done
+[sub-05] fold 1 done
+[sub-05] fold 2 done
+[sub-05] fold 3 done
+[sub-05] fold 4 done
+[sub-05] best=win acc=0.134 matched=0.138
+        config  accuracy  matched_accuracy  matched_ci_low  matched_ci_high  accuracy_ci_low  accuracy_ci_high
+    hjorth_lda  0.125321          0.129403        0.119045         0.140084         0.115632          0.135377
+    band_alpha  0.124807          0.124600        0.112253         0.137586         0.113898          0.137226
+          band  0.129515          0.124163        0.111947         0.136796         0.117528          0.143285
+     band_beta  0.127119          0.124017        0.112339         0.135895         0.115347          0.139410
+  ensemble_all  0.122924          0.122707        0.110996         0.134547         0.112771          0.133870
+         win_4  0.123010          0.122271        0.113239         0.132150         0.114128          0.132779
+         win_2  0.120613          0.122271        0.112866         0.131584         0.111801          0.129880
+    band_delta  0.125064          0.122125        0.110991         0.134524         0.113725          0.137130
+           win  0.125835          0.121689        0.110540         0.133401         0.115193          0.137386
+          chan  0.126434          0.120524        0.109403         0.132461         0.115301          0.138195
+        bp_pca  0.121726          0.120087        0.108594         0.131773         0.111543          0.132622
+    band_theta  0.120527          0.118341        0.107157         0.130487         0.110036          0.132260
+        bp_lda  0.117702          0.117758        0.107966         0.128019         0.108548          0.127441
+chan_occipital  0.125321          0.117031        0.107588         0.127033         0.116118          0.135547
+         win_1  0.118302          0.116885        0.107022         0.127139         0.109303          0.128163
+ band_lowgamma  0.119500          0.116303        0.104697         0.128688         0.108824          0.131137
+  chan_frontal  0.113765          0.115866        0.106373         0.126063         0.105013          0.123116
+         win_3  0.119414          0.115721        0.105886         0.125478         0.110347          0.128454
+ chan_parietal  0.121298          0.113392        0.103034         0.124186         0.110774          0.132256
+  chan_central  0.116590          0.113392        0.102457         0.124184         0.106531          0.126583
+         bp_lr  0.116846          0.113246        0.103295         0.123547         0.107112          0.126570
+ chan_temporal  0.111882          0.110044        0.100557         0.119727         0.103352          0.120900
+       erp_pca  0.107088          0.097817        0.091060         0.104631         0.101362          0.112838

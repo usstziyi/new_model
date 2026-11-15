@@ -1,0 +1,63 @@
+待处理被试 5 个: sub-01, sub-02, sub-03, sub-04, sub-05
+
+===== sub-01 =====
+[imagine ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-01_imagine.csv
+           句子数 6140（去重丢弃 103 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.5/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 6140/6140
+           type_number: 命中 6140/6140，共 39 类（0~38）
+[read    ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-01_reading.csv
+           句子数 6285（去重丢弃 102 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.5/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 6285/6285
+           type_number: 命中 6285/6285，共 39 类（0~38）
+
+===== sub-02 =====
+[imagine ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-02_imagine.csv
+           句子数 6288（去重丢弃 107 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.6/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 6288/6288
+           type_number: 命中 6288/6288，共 39 类（0~38）
+[read    ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-02_reading.csv
+           句子数 6289（去重丢弃 103 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.6/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 6289/6289
+           type_number: 命中 6289/6289，共 39 类（0~38）
+
+===== sub-03 =====
+[imagine ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-03_imagine.csv
+           句子数 5066（去重丢弃 66 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.6/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 5066/5066
+           type_number: 命中 5066/5066，共 39 类（0~38）
+[read    ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-03_reading.csv
+           句子数 5164（去重丢弃 71 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.6/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 5164/5164
+           type_number: 命中 5164/5164，共 39 类（0~38）
+
+===== sub-04 =====
+[imagine ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-04_imagine.csv
+           句子数 6136（去重丢弃 105 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.5/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 6136/6136
+           type_number: 命中 6136/6136，共 39 类（0~38）
+[read    ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-04_reading.csv
+           句子数 6251（去重丢弃 108 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.5/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 6251/6251
+           type_number: 命中 6251/6251，共 39 类（0~38）
+
+===== sub-05 =====
+[imagine ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-05_imagine.csv
+           句子数 5254（去重丢弃 201 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.6/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 5254/5254
+           type_number: 命中 5254/5254，共 39 类（0~38）
+[read    ] 45 个 run -> D:\AI\trae_work\new_model\datasets\preprocessed\sub-05_reading.csv
+           句子数 5011（去重丢弃 180 条） | run 范围 1~45 | n_chars min/mean/max = 4/8.6/16
+           day 覆盖 [1, 2, 3, 4, 5]（每天 9 个 run）
+           pos 自检（index 反推偏移 == pos）: 一致 5011/5011
+           type_number: 命中 5011/5011，共 39 类（0~38）
+
+合计导出 57884 行，输出目录 D:\AI\trae_work\new_model\datasets\preprocessed

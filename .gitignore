@@ -15,3 +15,5 @@ datasets/
 figures/
 
 outputs/
+
+cache/

@@ -1,0 +1,24 @@
+Traceback (most recent call last):
+  File "D:\AI\trae_work\new_model\plan_auto\make_figures.py", line 155, in <module>
+    main()
+  File "D:\AI\trae_work\new_model\plan_auto\make_figures.py", line 137, in main
+    bar_with_ci(
+  File "D:\AI\trae_work\new_model\plan_auto\make_figures.py", line 22, in bar_with_ci
+    table = pd.read_csv(csv_path).sort_values("matched_accuracy", ascending=False).head(top_n)
+            ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\AI\trae_work\new_model\.venv\Lib\site-packages\pandas\io\parsers\readers.py", line 1866, in read_csv
+    return _read(filepath_or_buffer, kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\AI\trae_work\new_model\.venv\Lib\site-packages\pandas\io\parsers\readers.py", line 423, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\AI\trae_work\new_model\.venv\Lib\site-packages\pandas\io\parsers\readers.py", line 2721, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\AI\trae_work\new_model\.venv\Lib\site-packages\pandas\io\parsers\readers.py", line 2988, in _make_engine
+    self.handles = get_handle(
+                   ^^^^^^^^^^^
+  File "D:\AI\trae_work\new_model\.venv\Lib\site-packages\pandas\io\common.py", line 948, in get_handle
+    handle = open(handle, ioargs.mode)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'D:\\AI\\trae_work\\new_model\\plan_auto\\exp06_sweep\\pooled_config_results.csv'

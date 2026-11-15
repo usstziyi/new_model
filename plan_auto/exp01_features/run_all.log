@@ -1,0 +1,10 @@
+[sub-01] fold 0: selected=bp|pca_lr val=0.179 test=0.133
+[sub-01] fold 1: selected=bp|pca_lr val=0.143 test=0.111
+[sub-01] fold 2: selected=bpwin+hjorth|pca_lr val=0.133 test=0.139
+[sub-01] fold 3: selected=bpwin|pca_lr val=0.141 test=0.095
+[sub-01] fold 4: selected=bpwin|pca_lr val=0.117 test=0.139
+[sub-01] OOF acc=0.123 CI=[0.103,0.146] matched=0.130 (chance=0.100)
+[Features] sub-02 已缓存 bp(2524, 610), bpwin(2524, 2440), erp(2524, 8418), hjorth(2524, 366)
+[sub-02] fold 0: selected=bpwin|pca_lr val=0.119 test=0.114
+[sub-02] fold 1: selected=bpwin|pca_lr val=0.136 test=0.101
+[sub-02] fold 2: selected=hjorth|lr val=0.120 test=0.113

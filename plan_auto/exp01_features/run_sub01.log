@@ -1,0 +1,7 @@
+[sub-01] fold 0: selected=bp|pca_lr val=0.179 test=0.133
+[sub-01] fold 1: selected=bp|pca_lr val=0.143 test=0.111
+[sub-01] fold 2: selected=bpwin+hjorth|pca_lr val=0.133 test=0.139
+[sub-01] fold 3: selected=bpwin|pca_lr val=0.141 test=0.095
+[sub-01] fold 4: selected=bpwin|pca_lr val=0.117 test=0.139
+[sub-01] OOF acc=0.123 CI=[0.103,0.146] matched=0.130 (chance=0.100)
+[Pooled] acc=0.123 CI=[0.103,0.145] matched=0.130 n=2459

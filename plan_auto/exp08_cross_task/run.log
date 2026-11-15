@@ -1,0 +1,37 @@
+[sub-01] read->imagine_paired: acc=0.224 chance=0.100
+[sub-01] imagine->read_paired: acc=0.218 chance=0.100
+[sub-01] read->imagine_runsplit: acc=0.111 chance=0.100
+[sub-01] imagine->read_runsplit: acc=0.124 chance=0.100
+[sub-01] imagine_cv: acc=0.131 chance=0.100
+[sub-01] read_cv: acc=0.115 chance=0.100
+[sub-02] read->imagine_paired: acc=0.177 chance=0.100
+[sub-02] imagine->read_paired: acc=0.184 chance=0.100
+[sub-02] read->imagine_runsplit: acc=0.110 chance=0.100
+[sub-02] imagine->read_runsplit: acc=0.107 chance=0.100
+[sub-02] imagine_cv: acc=0.106 chance=0.100
+[sub-02] read_cv: acc=0.113 chance=0.100
+[sub-03] read->imagine_paired: acc=0.189 chance=0.111
+[sub-03] imagine->read_paired: acc=0.215 chance=0.111
+[sub-03] read->imagine_runsplit: acc=0.128 chance=0.111
+[sub-03] imagine->read_runsplit: acc=0.120 chance=0.111
+[sub-03] imagine_cv: acc=0.127 chance=0.111
+[sub-03] read_cv: acc=0.138 chance=0.111
+[sub-04] read->imagine_paired: acc=0.172 chance=0.100
+[sub-04] imagine->read_paired: acc=0.182 chance=0.100
+[sub-04] read->imagine_runsplit: acc=0.125 chance=0.100
+[sub-04] imagine->read_runsplit: acc=0.125 chance=0.100
+[sub-04] imagine_cv: acc=0.135 chance=0.100
+[sub-04] read_cv: acc=0.127 chance=0.100
+[sub-05] read->imagine_paired: acc=0.160 chance=0.100
+[sub-05] imagine->read_paired: acc=0.197 chance=0.100
+[sub-05] read->imagine_runsplit: acc=0.121 chance=0.100
+[sub-05] imagine->read_runsplit: acc=0.130 chance=0.100
+[sub-05] imagine_cv: acc=0.101 chance=0.100
+[sub-05] read_cv: acc=0.102 chance=0.100
+               setting  mean_accuracy  sd_accuracy  mean_chance  n_subjects  subjects_above_chance
+  imagine->read_paired       0.199351     0.016760     0.102222           5                      5
+  read->imagine_paired       0.184146     0.024420     0.102222           5                      5
+imagine->read_runsplit       0.121232     0.009001     0.102222           5                      5
+            imagine_cv       0.120089     0.015676     0.102222           5                      5
+read->imagine_runsplit       0.118922     0.008038     0.102222           5                      5
+               read_cv       0.118921     0.013921     0.102222           5                      5

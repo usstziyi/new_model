@@ -1,0 +1,54 @@
+[sub-01] fold 0 done
+[sub-03] fold 0 done
+[sub-02] fold 0 done
+[sub-01] fold 1 done
+[sub-03] fold 1 done
+[sub-02] fold 1 done
+[sub-01] fold 2 done
+[sub-03] fold 2 done
+[sub-02] fold 2 done
+[sub-01] fold 3 done
+[sub-03] fold 3 done
+[sub-02] fold 3 done
+[sub-01] fold 4 done
+[sub-01] best=band_theta matched=0.135 acc=0.133 | ensemble matched=0.130
+[sub-03] fold 4 done
+[sub-03] best=chan_temporal matched=0.142 acc=0.145 | ensemble matched=0.117
+[sub-02] fold 4 done
+[sub-02] best=band_delta matched=0.128 acc=0.129 | ensemble matched=0.097
+[sub-04] fold 0 done
+[sub-05] fold 0 done
+[sub-04] fold 1 done
+[sub-05] fold 1 done
+[sub-04] fold 2 done
+[sub-05] fold 2 done
+[sub-05] fold 3 done
+[sub-04] fold 3 done
+[sub-05] fold 4 done
+[sub-05] best=chan matched=0.133 acc=0.140 | ensemble matched=0.106
+[sub-04] fold 4 done
+[sub-04] best=hjorth_lda matched=0.133 acc=0.134 | ensemble matched=0.128
+        config  accuracy  matched_accuracy  matched_ci_low  matched_ci_high  accuracy_ci_low  accuracy_ci_high
+          chan  0.130898          0.123810        0.113387         0.135298         0.120095          0.143297
+    hjorth_lda  0.118694          0.118615        0.107919         0.130332         0.108655          0.129564
+  chan_central  0.120069          0.116017        0.106632         0.126007         0.110772          0.129863
+  ensemble_all  0.120413          0.115584        0.104824         0.127632         0.109142          0.132714
+          band  0.121788          0.115007        0.103644         0.127270         0.109336          0.135411
+    band_delta  0.121186          0.115007        0.104853         0.125809         0.110189          0.132556
+     band_beta  0.115943          0.113997        0.103226         0.125674         0.105271          0.127749
+        bp_lda  0.118264          0.113709        0.103238         0.125018         0.107534          0.130049
+  chan_frontal  0.112162          0.113564        0.103802         0.124755         0.103402          0.122078
+chan_occipital  0.118350          0.113276        0.104248         0.122411         0.109112          0.127681
+        bp_pca  0.111646          0.113131        0.102978         0.123920         0.101127          0.122539
+    band_theta  0.115857          0.112843        0.102220         0.124518         0.104711          0.127985
+ band_lowgamma  0.118608          0.112554        0.102313         0.123197         0.107665          0.129949
+ chan_parietal  0.116373          0.111255        0.101918         0.121858         0.107245          0.126474
+         win_3  0.115771          0.110390        0.101684         0.120581         0.107181          0.125011
+         win_4  0.112763          0.109957        0.101263         0.118886         0.104695          0.121890
+           win  0.114568          0.109668        0.099068         0.121754         0.104256          0.126176
+         bp_lr  0.113795          0.109091        0.099884         0.119215         0.103565          0.124979
+         win_2  0.111990          0.108802        0.099303         0.118255         0.103194          0.121498
+         win_1  0.111130          0.108369        0.098994         0.117836         0.102190          0.120546
+ chan_temporal  0.113881          0.107937        0.098081         0.118397         0.104227          0.124070
+    band_alpha  0.111044          0.107504        0.097605         0.117538         0.100855          0.121674
+       erp_pca  0.107606          0.100000        0.092077         0.107648         0.100802          0.113836

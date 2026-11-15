@@ -1,0 +1,5 @@
+  candidate  accuracy  accuracy_ci_low  accuracy_ci_high  matched_accuracy  matched_ci_low  matched_ci_high  perm_p_matched
+  naive_ens  0.130297         0.118567          0.143400          0.126407        0.114341         0.139005        0.258741
+       chan  0.130898         0.120095          0.143297          0.123810        0.113387         0.135298        0.481518
+       deep  0.128062         0.116060          0.140624          0.121356        0.108978         0.134157        0.678322
+feature_ens  0.122647         0.111425          0.134889          0.119769        0.108970         0.131996        0.359640
