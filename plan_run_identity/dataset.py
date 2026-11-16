@@ -243,6 +243,7 @@ class RunLabelEEGDataset(Dataset):
             if match is not None:
                 pkl_paths[int(match["run"])] = path
 
+        # run 编号 -> 样本在 rows/data 中的下标；按 run 解包 pkl 时只取需要的试次
         rows_by_run: dict[int, list[int]] = defaultdict(list)
         for index, run in enumerate(raw_runs):
             rows_by_run[run].append(index)
