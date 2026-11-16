@@ -181,8 +181,14 @@ class RunLabelEEGDataset(Dataset):
             int(row[LABEL_COLUMN]): row.get("type_name", "") for row in rows
         }
         print(f"[CSV] {csv_path} 共 {len(rows)} 条，选出 {len(top)} 类：")
+        name_width = max(_display_width(class_names[class_id]) for class_id, _ in top)
+        header = f"{'rank':>4}  {'class':<{name_width}}  {'type':>4}  {'count':>5}"
+        print(header)
+        print("-" * len(header))
         for rank, (class_id, count) in enumerate(top, start=1):
-            print(f"  {rank:>2}. type_number={class_id:<2} {class_names[class_id]:<12s} {count} 条")
+            name = class_names[class_id]
+            pad = " " * (name_width - _display_width(name))
+            print(f"{rank:>4}  {name}{pad}  {class_id:>4}  {count:>5}")
 
         rows = [row for row in rows if int(row[LABEL_COLUMN]) in wanted]
         # 与原先 top10 pkl（按类别拼接、类内 run/pos 升序）保持同一顺序
@@ -371,7 +377,7 @@ def main() -> None:
     """冒烟检查：加载全量数据，打印 run 分布、划分比例与一个 batch。"""
     from torch.utils.data import DataLoader, Subset
 
-    dataset = RunLabelEEGDataset("sub-01")
+    dataset = RunLabelEEGDataset("sub-02")
     train_idx, val_idx, test_idx = split_indices(dataset.labels)
     splits = {"train": train_idx, "val": val_idx, "test": test_idx}
     counts = {
