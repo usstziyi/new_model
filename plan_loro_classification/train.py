@@ -4,14 +4,16 @@
 train / test；``plan_run_identity`` 已证明 run 身份可以 98% 被解码，且 run 与
 句类存在明显混杂。本实验做最直接的对照：
 
-- **leave-one-run-out（LORO）**：每次留出整个 run 作为测试集，用其余 44 个 run
+- **leave-one-run-out（LORO）**：每次留出整个 run 作为测试集，用其余 run
   训练，句类准确率无法再借助“见过的 run 指纹”；
 - **随机划分参考**：同一批特征上跑 5 折分层 CV，复现 ``plan_baseline_lda`` 的
   within-run 数字；
-- **多数类基线**：每折用训练集里最多的句类去猜测试 run，给出不依赖 EEG 的下限。
+- **多数类基线**：每折用训练集里最多的句类去猜测试 run，给出不依赖 EEG 的下限；
+- **置换零分布**（可选）：全局打乱句类标签后重跑 LORO，给出经验 p 值；
+- **频段扫描**（可选）：``all`` / 单频段 / 留一频段共 11 种特征子集。
 
-如果 LORO 准确率从随机划分的 ~22.7% 掉到接近 10%，说明当前句类分类主要靠
-run 特异签名，而不是跨 run 稳定的句类脑响应。
+数据直接由 ``datasets/preprocessed/<subject>_<task>.csv`` 选 top-k 句类并从原始
+run pkl 加载（见 ``dataset.py``），不经过 ``top10_imagine`` 中间产物。
 
 用法::
 
@@ -19,6 +21,7 @@ run 特异签名，而不是跨 run 稳定的句类脑响应。
     uv run plan_loro_classification/train.py --bands-mode abs
     uv run plan_loro_classification/train.py --model logreg
     uv run plan_loro_classification/train.py --use-64-channels
+    uv run plan_loro_classification/train.py --sweep-bands --run-name sweep_rel_lda
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold
 
-from dataset import TOP_ROOT, TopClassEEGDataset
+from dataset import CSV_ROOT, PKL_ROOT, LoroClassEEGDataset
 from model import BANDS, extract_features, make_model
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -43,11 +46,11 @@ def loro_evaluate(
     feats: np.ndarray,
     y: np.ndarray,
     groups: np.ndarray,
-    group_names: list[str],
     class_names: list[str],
+    run_names_by_id: dict[int, str],
     run_day: dict[int, int],
     model_name: str,
-) -> dict:
+) -> tuple[dict, np.ndarray, np.ndarray]:
     """逐 run 留出，返回每折指标和池化后的总体指标。"""
     splitter = LeaveOneGroupOut()
     fold_rows = []
@@ -67,7 +70,7 @@ def loro_evaluate(
 
         fold_rows.append(
             {
-                "run": group_names[held_out],
+                "run": run_names_by_id[held_out],
                 "run_id": held_out,
                 "day": run_day.get(held_out),
                 "n_train": int(len(train_idx)),
@@ -145,19 +148,115 @@ def random_cv_reference(
     }
 
 
+def permutation_null(
+    feats: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    class_names: list[str],
+    run_names_by_id: dict[int, str],
+    run_day: dict[int, int],
+    model_name: str,
+    seed: int,
+    n_perm: int,
+) -> np.ndarray:
+    """全局打乱句类标签后的 LORO 池化准确率零分布。"""
+    rng = np.random.default_rng(seed)
+    null = np.empty(n_perm)
+    for i in range(n_perm):
+        shuffled = rng.permutation(y)  # 返回打乱后的新数据
+        result, _, _ = loro_evaluate(
+            feats, shuffled, groups, class_names, run_names_by_id, run_day, model_name
+        )
+        null[i] = result["pooled"]["accuracy"]
+    return null
+
+
+def evaluate(
+    feats: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    class_names: list[str],
+    run_names_by_id: dict[int, str],
+    run_day: dict[int, int],
+    model_name: str,
+    folds: int,
+    seed: int,
+    n_perm: int,
+) -> tuple[dict, np.ndarray, np.ndarray, dict, dict | None]:
+    """LORO + 随机 CV 参考 (+ 置换零分布)，返回所有指标与池化预测。"""
+    # 1. leave-one-run-out
+    loro, y_true, y_pred = loro_evaluate(
+        feats, y, groups, class_names, run_names_by_id, run_day, model_name
+    )
+    # 2. 同一批特征上的随机划分参考
+    reference = random_cv_reference(feats, y, model_name, folds, seed)
+
+    # 3. 置换零分布：打乱标签后重跑 LORO，p 用 +1 平滑避免为 0
+    permutation = None
+    if n_perm > 0:
+        null = permutation_null(
+            feats, y, groups, class_names, run_names_by_id, run_day,
+            model_name, seed, n_perm,
+        )
+        observed = loro["pooled"]["accuracy"]
+        permutation = {
+            "n": n_perm,
+            "null_mean": float(null.mean()),
+            "null_std": float(null.std()),
+            "null_p95": float(np.percentile(null, 95)),
+            "observed": float(observed),
+            "z_score": float((observed - null.mean()) / (null.std() + 1e-12)),
+            "p_value": float((np.sum(null >= observed) + 1) / (len(null) + 1)),
+            "null_samples": null.tolist(),
+        }
+    return loro, y_true, y_pred, reference, permutation
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="leave-one-run-out 句类分类（log 频带功率 + 线性分类器）。")
     parser.add_argument("--subject", default="sub-01", help="被试编号")
-    parser.add_argument("--data-root", type=Path, default=TOP_ROOT, help="top10_imagine 根目录")
+    parser.add_argument("--task", default="imagine", choices=("imagine", "reading"), help="读取哪一组 CSV / run pkl")
+    parser.add_argument("--top-k", type=int, default=10, help="保留样本数最多的前 k 个句类")
+    parser.add_argument("--csv-root", type=Path, default=CSV_ROOT, help="试次表 CSV 目录")
+    parser.add_argument("--pkl-root", type=Path, default=PKL_ROOT, help="preprocessed_pkl 根目录")
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--use-64-channels", action="store_true", help="只用 64 通道")
     parser.add_argument("--bands-mode", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
+    parser.add_argument("--sweep-bands", action="store_true", help="逐个频段扫描（all / 单频段 / 留一频段），Welch 只算一次")
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器")
     parser.add_argument("--folds", type=int, default=5, help="随机划分参考的 CV 折数")
-    parser.add_argument("--seed", type=int, default=42, help="随机划分参考的种子")
+    parser.add_argument("--permutations", type=int, default=0, help="LORO 置换检验次数，0 表示跳过")
+    parser.add_argument("--seed", type=int, default=42, help="随机划分参考与置换的种子")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出根目录")
     parser.add_argument("--run-name", default=None, help="本次实验目录名，默认按时间命名")
     return parser.parse_args()
+
+
+def band_columns(only, exclude, channels_per_band: int) -> tuple[np.ndarray, list[str]]:
+    """返回按 ``BANDS`` 顺序排列的列索引，以及实际保留的频段名。"""
+    bands = list(BANDS)
+    kept = [
+        name
+        for name in bands
+        if (not only or name in only) and name not in (exclude or [])
+    ]
+    if not kept:
+        raise SystemExit("频段选择结果为空")
+
+    index = []
+    for name in kept:
+        start = bands.index(name) * channels_per_band
+        index.append(np.arange(start, start + channels_per_band))
+    return np.concatenate(index), kept
+
+
+def sweep_configs(channels_per_band: int) -> list[tuple[str, np.ndarray]]:
+    """all + 5 个单频段 + 5 个留一频段，共 11 种列选择。"""
+    bands = list(BANDS)
+    configs = [("all", np.arange(len(bands) * channels_per_band))]
+    configs += [(f"only:{name}", band_columns([name], None, channels_per_band)[0]) for name in bands]
+    configs += [(f"drop:{name}", band_columns(None, [name], channels_per_band)[0]) for name in bands]
+    return configs
 
 
 def print_fold_table(rows: list[dict]) -> None:
@@ -166,18 +265,119 @@ def print_fold_table(rows: list[dict]) -> None:
     print(header)
     print("-" * len(header))
     for row in rows:
+        day = "-" if row["day"] is None else row["day"]
         print(
-            f"{row['run']:<9}{row['day']:>4}{row['n_test']:>8}{row['accuracy']:>8.4f}"
+            f"{row['run']:<9}{day:>4}{row['n_test']:>8}{row['accuracy']:>8.4f}"
             f"{row['macro_f1']:>10.4f}{row['majority_baseline_accuracy']:>10.4f}"
         )
+
+
+def print_sweep_table(rows: list[dict]) -> None:
+    """打印频段扫描的汇总表。"""
+    header = (
+        f"{'config':<12}{'n_feat':>7}{'loro_acc':>10}{'loro_f1':>9}"
+        f"{'fold_acc':>10}{'ref_cv':>9}{'p':>8}"
+    )
+    print("\n=== 频段扫描汇总 ===")
+    print(header)
+    print("-" * len(header))
+    for row in rows:
+        p_value = f"{row['p_value']:.4f}" if row["p_value"] is not None else "-"
+        print(
+            f"{row['config']:<12}{row['n_features']:>7}{row['loro_accuracy']:>10.4f}"
+            f"{row['loro_macro_f1']:>9.4f}{row['fold_accuracy_mean']:>10.4f}"
+            f"{row['reference_cv_accuracy']:>9.4f}{p_value:>8}"
+        )
+
+
+def base_payload(
+    args,
+    class_names: list[str],
+    run_names: list[str],
+    n_samples: int,
+    n_features: int,
+) -> dict:
+    return {
+        "subject": args.subject,
+        "task": "leave_one_run_out_classification",
+        "eeg_task": args.task,
+        "top_k": args.top_k,
+        "label_source": "meta.type_number",
+        "classes": class_names,
+        "runs": run_names,
+        "n_samples": int(n_samples),
+        "n_runs": len(run_names),
+        "n_features": int(n_features),
+        "bands": {k: list(v) for k, v in BANDS.items()},
+        "band_mode": args.bands_mode,
+        "model": args.model,
+        "sfreq": float(args.target_sfreq),
+        "use_64_channels": args.use_64_channels,
+    }
+
+
+def run_sweep(
+    feats, y, groups, class_names, run_names_by_id, run_day, run_names, args, out_dir: Path
+) -> None:
+    """逐个频段评估，并把汇总写入 ``sweep.json``。"""
+    rows = []
+    for label, columns in sweep_configs(feats.shape[1] // len(BANDS)):
+        print(f"\n=== [{label}] {len(columns)} 维 ===", flush=True)
+        loro, _, _, reference, permutation = evaluate(
+            feats[:, columns],
+            y,
+            groups,
+            class_names,
+            run_names_by_id,
+            run_day,
+            args.model,
+            args.folds,
+            args.seed,
+            args.permutations,
+        )
+        pooled = loro["pooled"]
+        rows.append(
+            {
+                "config": label,
+                "n_features": int(columns.size),
+                "loro_accuracy": pooled["accuracy"],
+                "loro_macro_f1": pooled["macro_f1"],
+                "fold_accuracy_mean": loro["fold_mean_accuracy"],
+                "fold_accuracy_std": loro["fold_std_accuracy"],
+                "reference_cv_accuracy": reference["accuracy_mean"],
+                "p_value": permutation["p_value"] if permutation else None,
+                "detail": {
+                    "loro": loro,
+                    "reference_random_cv": reference,
+                    "permutation": permutation,
+                },
+            }
+        )
+        print(
+            f"  loro={pooled['accuracy']:.4f} macro_f1={pooled['macro_f1']:.4f} "
+            f"fold={loro['fold_mean_accuracy']:.4f}±{loro['fold_std_accuracy']:.4f} "
+            f"ref_cv={reference['accuracy_mean']:.4f}",
+            flush=True,
+        )
+
+    print_sweep_table(rows)
+    payload = base_payload(args, class_names, run_names, len(y), feats.shape[1])
+    payload["sweep"] = rows
+    sweep_path = out_dir / "sweep.json"
+    with sweep_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    print(f"[Saved] {sweep_path}")
 
 
 def main():
     args = parse_args()
 
-    dataset = TopClassEEGDataset(
+    dataset = LoroClassEEGDataset(
         subject=args.subject,
-        root=args.data_root,
+        task=args.task,
+        top_k=args.top_k,
+        csv_root=args.csv_root,
+        pkl_root=args.pkl_root,
         target_sfreq=args.target_sfreq,
         normalize=False,  # 相对功率尺度不变，无需逐试次 z-score
         use_64_channels=args.use_64_channels,
@@ -185,16 +385,25 @@ def main():
     y = dataset.labels
     groups = dataset.groups
     class_names = list(dataset.class_names)
+    run_names = list(dataset.run_names)
+    run_names_by_id = dict(zip(dataset.run_ids, run_names))
     num_classes = len(class_names)
-    num_runs = len(dataset.group_names)
+    num_runs = len(run_names)
     sfreq = float(args.target_sfreq)
 
     run_day: dict[int, int] = {}
     for group, entry in zip(groups, dataset.meta):
-        run_day.setdefault(int(group), int(entry.get("day", -1)))
+        run_day.setdefault(int(group), int(entry["day"]))
 
-    run_counts = np.array([np.sum(groups == run) for run in dataset.group_names])
-    print(f"[Runs] {num_runs} 个 run | 每 run 试次 {run_counts.min()}~{run_counts.max()}")
+    min_class = int(np.bincount(y).min())
+    if args.folds > min_class:
+        print(f"[Warn] 最小的句类只有 {min_class} 条，fold 从 {args.folds} 降到 {min_class}")
+        args.folds = min_class
+    run_counts = np.array([np.sum(groups == run) for run in dataset.run_ids])
+    print(
+        f"[Runs] {num_runs} 个 run | 每 run 试次 {run_counts.min()}~{run_counts.max()} | "
+        f"最小句类 {min_class} 条"
+    )
 
     # feats: (N, 610)
     feats = extract_features(dataset.data.numpy(), sfreq, args.bands_mode)
@@ -209,11 +418,19 @@ def main():
     out_dir = args.out_dir / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.sweep_bands:
+        run_sweep(
+            feats, y, groups, class_names, run_names_by_id, run_day, run_names, args, out_dir
+        )
+        return
+
+    loro, y_true, y_pred, reference, permutation = evaluate(
+        feats, y, groups, class_names, run_names_by_id, run_day,
+        args.model, args.folds, args.seed, args.permutations,
+    )
+
     # ---------- 1. leave-one-run-out ----------
     print(f"=== Leave-one-run-out（{num_runs} 折，{args.model}）===")
-    loro, loro_y_true, loro_y_pred = loro_evaluate(
-        feats, y, groups, dataset.group_names, class_names, run_day, args.model
-    )
     print_fold_table(loro["folds"])
 
     pooled = loro["pooled"]
@@ -233,8 +450,8 @@ def main():
     print(f"\nLORO 池化分类报告（{args.model}）:")
     print(
         classification_report(
-            loro_y_true,
-            loro_y_pred,
+            y_true,
+            y_pred,
             labels=list(range(num_classes)),
             target_names=class_names,
             digits=3,
@@ -243,7 +460,6 @@ def main():
     )
 
     # ---------- 2. 随机划分参考 ----------
-    reference = random_cv_reference(feats, y, args.model, args.folds, args.seed)
     print(f"=== 随机 {args.folds} 折参考（within-run，同 baseline）===")
     print(
         f"  {args.model:<7} acc={reference['accuracy_mean']:.4f} ± {reference['accuracy_std']:.4f}   "
@@ -251,22 +467,23 @@ def main():
     )
     print(f"  {'chance':<7} acc={1 / num_classes:.4f}")
 
+    # ---------- 3. 置换零分布 ----------
+    if permutation is not None:
+        print(
+            f"  null acc={permutation['null_mean']:.4f} ± {permutation['null_std']:.4f} "
+            f"p95={permutation['null_p95']:.4f}   observed={permutation['observed']:.4f}   "
+            f"z={permutation['z_score']:.1f}   p={permutation['p_value']:.4f}"
+        )
+
     # ---------- 输出 ----------
-    payload = {
-        "subject": args.subject,
-        "task": "leave_one_run_out_classification",
-        "classes": class_names,
-        "n_samples": int(len(y)),
-        "n_runs": num_runs,
-        "n_features": int(feats.shape[1]),
-        "bands": {k: list(v) for k, v in BANDS.items()},
-        "band_mode": args.bands_mode,
-        "model": args.model,
-        "sfreq": sfreq,
-        "use_64_channels": args.use_64_channels,
-        "loro": loro,
-        "reference_random_cv": reference,
-    }
+    payload = base_payload(args, class_names, run_names, len(y), feats.shape[1])
+    payload.update(
+        {
+            "loro": loro,
+            "reference_random_cv": reference,
+            "permutation": permutation,
+        }
+    )
     metrics_path = out_dir / "metrics.json"
     with metrics_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
