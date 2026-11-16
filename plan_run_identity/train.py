@@ -23,12 +23,14 @@
     uv run plan_run_identity/train.py --bands-mode abs
     uv run plan_run_identity/train.py --permutations 100 --folds 5
     uv run plan_run_identity/train.py --sweep-bands --run-name sweep_rel_lda
+    uv run plan_run_identity/train.py --sweep-channels --run-name sweep_channels_lda
     uv run plan_run_identity/train.py --use-64-channels
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +44,8 @@ from model import BANDS, extract_features, make_model
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "run_identity"
+MONTAGE_CSV = PROJECT_ROOT / "scripts/montage.csv"
+BAD_CHANNELS_CSV = PROJECT_ROOT / "outputs" / "bad_channels" / "bad_channels.csv"
 
 
 def cross_validate(X, y, model_name: str, folds: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -135,6 +139,8 @@ def parse_args():
     parser.add_argument("--use-64-channels", action="store_true", help="只用 64 通道")
     parser.add_argument("--bands-mode", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
     parser.add_argument("--sweep-bands", action="store_true", help="逐个频段扫描（all / 单频段 / 留一频段），Welch 只算一次")
+    parser.add_argument("--sweep-channels", action="store_true", help="逐通道扫描：run 效应量排序 + 首尾通道的 only/drop CV")
+    parser.add_argument("--channel-top-k", type=int, default=10, help="通道扫描确认阶段取效应量最高/最低的各 k 个")
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器：lda 收缩 LDA、logreg 逻辑回归或 svm RBF 核 SVM")
     parser.add_argument("--folds", type=int, default=5, help="交叉验证折数")
     parser.add_argument("--permutations", type=int, default=200, help="置换检验次数，0 表示跳过")
@@ -163,6 +169,56 @@ def band_columns(only, exclude, channels_per_band: int) -> tuple[np.ndarray, lis
         start = bands.index(name) * channels_per_band
         index.append(np.arange(start, start + channels_per_band))
     return np.concatenate(index), kept
+
+
+def channel_columns(n_channels: int, channel: int) -> np.ndarray:
+    """返回某通道的列索引（特征按 ``[频段][通道]`` 主序拼接）。"""
+    return np.arange(len(BANDS)) * n_channels + channel
+
+
+def channel_eta_squared(feats: np.ndarray, y: np.ndarray, n_channels: int) -> np.ndarray:
+    """每个 (通道, 频段) 的 run 组间效应量 eta^2，返回 ``(n_channels, n_bands)``。"""
+    n_bands = len(BANDS)
+    x = feats.reshape(len(feats), n_bands, n_channels)
+    runs = np.unique(y)
+    onehot = np.zeros((len(y), len(runs)))
+    onehot[np.arange(len(y)), np.searchsorted(runs, y)] = 1
+    counts = onehot.sum(axis=0)
+    flat = x.reshape(len(feats), -1)
+    means = (onehot.T @ flat / counts[:, None]).reshape(len(runs), n_bands, n_channels)
+    grand = flat.mean(axis=0).reshape(n_bands, n_channels)
+    ss_between = (counts[:, None, None] * (means - grand) ** 2).sum(axis=0)
+    ss_total = ((x - grand) ** 2).sum(axis=0)
+    return (ss_between / np.maximum(ss_total, 1e-30)).T
+
+
+def load_montage(path: Path = MONTAGE_CSV) -> dict[str, dict[str, float]]:
+    """读取电极坐标，键为小写通道名；文件缺失时返回空字典。"""
+    if not Path(path).exists():
+        return {}
+    with Path(path).open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    return {
+        row["label"].lower(): {axis: float(row[axis]) for axis in ("x", "y", "z")}
+        for row in rows
+        if row.get("label")
+    }
+
+
+def load_bad_run_counts(subject: str, task: str, path: Path = BAD_CHANNELS_CSV) -> dict[str, int]:
+    """统计每个通道在多少次 run 中被判为坏道；文件缺失时返回空字典。"""
+    if not Path(path).exists():
+        return {}
+    counts: dict[str, int] = {}
+    with Path(path).open(encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("subject") != subject or row.get("task") != task:
+                continue
+            for name in (row.get("bad_channels") or "").split(";"):
+                name = name.strip()
+                if name:
+                    counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def evaluate(
@@ -313,6 +369,125 @@ def run_sweep(feats, y, run_names, orig_class_names, confound, train_idx, val_id
     print(f"[Saved] {sweep_path}")
 
 
+def run_channel_sweep(feats, y, run_names, channel_names, confound, train_idx, val_idx, test_idx, args, out_dir: Path) -> None:
+    """按通道计算 run 效应量，并对首尾通道做 only/drop 确认。"""
+    n_channels = len(channel_names)
+    band_names = list(BANDS)
+    eta = channel_eta_squared(feats, y, n_channels)
+    score = eta.mean(axis=1)
+    order = np.argsort(-score)
+    montage = load_montage()
+    bad_counts = load_bad_run_counts(args.subject, args.task)
+
+    channels = []
+    for rank, channel in enumerate(order, start=1):
+        name = channel_names[channel]
+        entry = {
+            "rank": rank,
+            "index": int(channel),
+            "name": name,
+            "eta2_mean": float(score[channel]),
+            "eta2_max": float(eta[channel].max()),
+            "eta2": {band: float(eta[channel, i]) for i, band in enumerate(band_names)},
+            "bad_run_count": int(bad_counts.get(name, 0)),
+        }
+        entry.update(montage.get(name.lower(), {}))
+        channels.append(entry)
+
+    print(f"\n=== 通道效应量 Top {min(20, n_channels)}（按 run 间 eta^2 均值）===")
+    header = f"{'rank':>4}  {'channel':<8}{'eta2_mean':>10}{'eta2_max':>10}{'bad_runs':>9}{'best_band':>11}"
+    print(header)
+    print("-" * len(header))
+    for entry in channels[:20]:
+        best_band = max(entry["eta2"], key=entry["eta2"].get)
+        print(
+            f"{entry['rank']:>4}  {entry['name']:<8}{entry['eta2_mean']:>10.4f}"
+            f"{entry['eta2_max']:>10.4f}{entry['bad_run_count']:>9}{best_band:>11}"
+        )
+
+    top_k = min(max(args.channel_top_k, 0), n_channels)
+    selected = sorted(set(order[:top_k].tolist()) | set(order[-top_k:].tolist()))
+
+    _, baseline = evaluate(
+        feats, y, run_names, train_idx, val_idx, test_idx,
+        args.model, args.folds, args.seed, 0,
+    )
+    base_acc = float(np.mean(baseline["cv"][args.model]["accuracy"]))
+    print(f"\n=== 通道确认：only-channel / drop-channel（all={base_acc:.4f}）===")
+    header = f"{'channel':<8}{'eta2':>8}{'only_cv':>9}{'drop_cv':>9}{'only_test':>10}{'drop_test':>10}"
+    print(header)
+    print("-" * len(header))
+    confirm = []
+    for channel in selected:
+        columns = channel_columns(n_channels, channel)
+        keep = np.ones(feats.shape[1], dtype=bool)
+        keep[columns] = False
+        _, only = evaluate(
+            feats[:, columns], y, run_names, train_idx, val_idx, test_idx,
+            args.model, args.folds, args.seed, 0,
+        )
+        _, drop = evaluate(
+            feats[:, keep], y, run_names, train_idx, val_idx, test_idx,
+            args.model, args.folds, args.seed, 0,
+        )
+        only_acc = float(np.mean(only["cv"][args.model]["accuracy"]))
+        drop_acc = float(np.mean(drop["cv"][args.model]["accuracy"]))
+        row = {
+            "channel": channel_names[channel],
+            "index": int(channel),
+            "eta2_mean": float(score[channel]),
+            "only_cv_accuracy": only_acc,
+            "only_test_accuracy": float(only["holdout"]["test"]["accuracy"]),
+            "drop_cv_accuracy": drop_acc,
+            "drop_test_accuracy": float(drop["holdout"]["test"]["accuracy"]),
+            "drop_delta_cv": drop_acc - base_acc,
+        }
+        confirm.append(row)
+        print(
+            f"{row['channel']:<8}{row['eta2_mean']:>8.4f}{only_acc:>9.4f}{drop_acc:>9.4f}"
+            f"{row['only_test_accuracy']:>10.4f}{row['drop_test_accuracy']:>10.4f}"
+        )
+
+    payload = {
+        "subject": args.subject,
+        "task": "run_identity_channel_sweep",
+        "eeg_task": args.task,
+        "top_k": args.top_k,
+        "label_source": "meta.run",
+        "n_samples": int(len(y)),
+        "n_runs": len(run_names),
+        "n_channels": n_channels,
+        "n_bands": len(band_names),
+        "bands": {k: list(v) for k, v in BANDS.items()},
+        "band_mode": args.bands_mode,
+        "model": args.model,
+        "sfreq": float(args.target_sfreq),
+        "use_64_channels": args.use_64_channels,
+        "feature_layout": "按 [频段][通道] 主序拼接",
+        "selection_metric": "run 组间 eta^2（逐通道逐频段）",
+        "split": {
+            "val_ratio": args.val_ratio,
+            "test_ratio": args.test_ratio,
+            "seed": args.split_seed,
+            "n_train": int(len(train_idx)),
+            "n_val": int(len(val_idx)),
+            "n_test": int(len(test_idx)),
+        },
+        "run_class_confound": confound,
+        "top_k_channels": top_k,
+        "baseline_all": {
+            "cv_accuracy_mean": base_acc,
+            "test_accuracy": float(baseline["holdout"]["test"]["accuracy"]),
+        },
+        "channels": channels,
+        "confirm": confirm,
+    }
+    path = out_dir / "channel_sweep.json"
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    print(f"[Saved] {path}")
+
+
 def main():
     args = parse_args()
 
@@ -367,6 +542,16 @@ def main():
     run_name = args.run_name or f"run_identity_{datetime.now():%Y%m%d_%H%M%S}"
     out_dir = args.out_dir / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.sweep_bands and args.sweep_channels:
+        raise SystemExit("--sweep-bands 与 --sweep-channels 只能选一个")
+
+    if args.sweep_channels:
+        run_channel_sweep(
+            feats, y, run_names, list(dataset.channel_names), confound,
+            train_idx, val_idx, test_idx, args, out_dir,
+        )
+        return
 
     if args.sweep_bands:
         run_sweep(
