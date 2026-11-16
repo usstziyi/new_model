@@ -406,7 +406,8 @@ def run_channel_sweep(feats, y, run_names, channel_names, confound, train_idx, v
         )
 
     top_k = min(max(args.channel_top_k, 0), n_channels)
-    selected = sorted(set(order[:top_k].tolist()) | set(order[-top_k:].tolist()))
+    # 最高 / 最低各 top_k 个，分组输出并按 eta^2 降序
+    groups = [("top", order[:top_k]), ("bottom", order[::-1][:top_k])]
 
     _, baseline = evaluate(
         feats, y, run_names, train_idx, val_idx, test_idx,
@@ -418,35 +419,45 @@ def run_channel_sweep(feats, y, run_names, channel_names, confound, train_idx, v
     print(header)
     print("-" * len(header))
     confirm = []
-    for channel in selected:
-        columns = channel_columns(n_channels, channel)
-        keep = np.ones(feats.shape[1], dtype=bool)
-        keep[columns] = False
-        _, only = evaluate(
-            feats[:, columns], y, run_names, train_idx, val_idx, test_idx,
-            args.model, args.folds, args.seed, 0,
-        )
-        _, drop = evaluate(
-            feats[:, keep], y, run_names, train_idx, val_idx, test_idx,
-            args.model, args.folds, args.seed, 0,
-        )
-        only_acc = float(np.mean(only["cv"][args.model]["accuracy"]))
-        drop_acc = float(np.mean(drop["cv"][args.model]["accuracy"]))
-        row = {
-            "channel": channel_names[channel],
-            "index": int(channel),
-            "eta2_mean": float(score[channel]),
-            "only_cv_accuracy": only_acc,
-            "only_test_accuracy": float(only["holdout"]["test"]["accuracy"]),
-            "drop_cv_accuracy": drop_acc,
-            "drop_test_accuracy": float(drop["holdout"]["test"]["accuracy"]),
-            "drop_delta_cv": drop_acc - base_acc,
-        }
-        confirm.append(row)
-        print(
-            f"{row['channel']:<8}{row['eta2_mean']:>8.4f}{only_acc:>9.4f}{drop_acc:>9.4f}"
-            f"{row['only_test_accuracy']:>10.4f}{row['drop_test_accuracy']:>10.4f}"
-        )
+    seen = set()
+    for group, indices in groups:
+        if top_k == 0:
+            break
+        print(f"[{group}]")
+        for channel in indices:
+            channel = int(channel)
+            if channel in seen:  # top 与 bottom 重叠时只评估一次
+                continue
+            seen.add(channel)
+            columns = channel_columns(n_channels, channel)
+            keep = np.ones(feats.shape[1], dtype=bool)
+            keep[columns] = False
+            _, only = evaluate(
+                feats[:, columns], y, run_names, train_idx, val_idx, test_idx,
+                args.model, args.folds, args.seed, 0,
+            )
+            _, drop = evaluate(
+                feats[:, keep], y, run_names, train_idx, val_idx, test_idx,
+                args.model, args.folds, args.seed, 0,
+            )
+            only_acc = float(np.mean(only["cv"][args.model]["accuracy"]))
+            drop_acc = float(np.mean(drop["cv"][args.model]["accuracy"]))
+            row = {
+                "group": group,
+                "channel": channel_names[channel],
+                "index": channel,
+                "eta2_mean": float(score[channel]),
+                "only_cv_accuracy": only_acc,
+                "only_test_accuracy": float(only["holdout"]["test"]["accuracy"]),
+                "drop_cv_accuracy": drop_acc,
+                "drop_test_accuracy": float(drop["holdout"]["test"]["accuracy"]),
+                "drop_delta_cv": drop_acc - base_acc,
+            }
+            confirm.append(row)
+            print(
+                f"{row['channel']:<8}{row['eta2_mean']:>8.4f}{only_acc:>9.4f}{drop_acc:>9.4f}"
+                f"{row['only_test_accuracy']:>10.4f}{row['drop_test_accuracy']:>10.4f}"
+            )
 
     payload = {
         "subject": args.subject,
