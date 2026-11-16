@@ -63,7 +63,7 @@ def permutation_null(X, y, model_name: str, folds: int, seed: int, n_perm: int) 
     rng = np.random.default_rng(seed)
     null = np.empty(n_perm)
     for i in range(n_perm):
-        shuffled = rng.permutation(y)
+        shuffled = rng.permutation(y)  # 返回打乱后的新数据
         accs, _ = cross_validate(X, shuffled, model_name, folds, seed)
         null[i] = accs.mean()
     return null
@@ -93,7 +93,7 @@ def holdout_report(X, y, train_idx, eval_sets, run_names, model_name):
 
 
 def run_class_confound(run_labels, orig_labels, run_names, orig_class_names, meta) -> dict:
-    """描述 run 与原始句类的混淆程度。
+    """描述 run 与原始句类的混淆程度。它衡量的是“数据中 run 和句类纠缠得有多严重”。
 
     对每个 run 统计其试次的句类分布；``majority_baseline_accuracy`` 表示只看
     run 身份、统一猜该 run 里最常见的句类时的准确率。
@@ -177,13 +177,16 @@ def evaluate(
     seed: int,
     n_perm: int,
 ) -> tuple:
-    """一次完整评估：holdout + 交叉验证 + 置换零分布。"""
+    
+    # 1. “留出法”即在固定的 8:1:1 划分上训练一次，报告 val / test 的 holdout 指标
     model, holdout = holdout_report(
         feats, y, train_idx, {"val": val_idx, "test": test_idx}, run_names, model_name
     )
+    # 2. 全量数据 5 折交叉验证，其均值作为置换检验的观测值
     accs, f1s = cross_validate(feats, y, model_name, folds, seed)
     permutation = None
     if n_perm > 0:
+        # 3. 置换零分布：打乱标签后重跑同一条管线，p 用 +1 平滑避免为 0（下限 1/(n+1)）
         null = permutation_null(feats, y, model_name, folds, seed, n_perm)
         observed = float(accs.mean())
         permutation = {
@@ -335,6 +338,7 @@ def main():
         args.folds = min_class
     print(f"[Runs] {num_runs} 个 run | 每 run 试次 {min_class}~{int(np.bincount(y).max())}")
 
+    # 混淆诊断
     confound = run_class_confound(
         y, dataset.orig_labels, run_names, orig_class_names, dataset.meta
     )
