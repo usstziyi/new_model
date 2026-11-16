@@ -3,7 +3,9 @@
 背景：``plan_baseline_lda`` 的句类分类用 8:1:1 随机划分，同一 run 的试次会同时
 出现在 train 和 test 中。如果 run 本身在频谱特征上有强烈指纹（阻抗、疲劳、
 残余伪迹等），分类器可能借 run 走捷径。本实验把标签直接改成 ``meta["run"]``，
-用与 baseline 完全相同的特征和分类器跑一遍：
+用与 baseline 完全相同的特征和分类器跑一遍。数据直接由
+``datasets/preprocessed/<subject>_<task>.csv`` 选 top-k 句类并从原始 run pkl
+加载，不经过 ``top10_imagine`` 中间产物：
 
 1. **同划分 holdout**：8:1:1 分层随机划分，报 val / test 的准确率与 macro-F1；
 2. **5 折交叉验证**：全量 2459 条上的稳定估计；
@@ -35,7 +37,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import StratifiedKFold
 
-from dataset import TOP_ROOT, RunLabelEEGDataset, split_indices
+from dataset import CSV_ROOT, PKL_ROOT, RunLabelEEGDataset, split_indices
 from model import BANDS, extract_features, make_model
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -125,7 +127,10 @@ def run_class_confound(run_labels, orig_labels, run_names, orig_class_names, met
 def parse_args():
     parser = argparse.ArgumentParser(description="run 身份探针：log 频带功率 + 线性分类器。")
     parser.add_argument("--subject", default="sub-01", help="被试编号")
-    parser.add_argument("--data-root", type=Path, default=TOP_ROOT, help="top10_imagine 根目录")
+    parser.add_argument("--task", default="imagine", choices=("imagine", "reading"), help="读取哪一组 CSV / run pkl")
+    parser.add_argument("--top-k", type=int, default=10, help="保留样本数最多的前 k 个句类")
+    parser.add_argument("--csv-root", type=Path, default=CSV_ROOT, help="试次表 CSV 目录")
+    parser.add_argument("--pkl-root", type=Path, default=PKL_ROOT, help="preprocessed_pkl 根目录")
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--use-64-channels", action="store_true", help="只用 64 通道")
     parser.add_argument("--bands-mode", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
@@ -230,6 +235,8 @@ def sweep_payload(args, run_names, orig_class_names, confound, train_idx, val_id
     return {
         "subject": args.subject,
         "task": "run_identity",
+        "eeg_task": args.task,
+        "top_k": args.top_k,
         "label_source": "meta.run",
         "runs": run_names,
         "original_classes": orig_class_names,
@@ -308,7 +315,10 @@ def main():
 
     dataset = RunLabelEEGDataset(
         subject=args.subject,
-        root=args.data_root,
+        task=args.task,
+        top_k=args.top_k,
+        csv_root=args.csv_root,
+        pkl_root=args.pkl_root,
         target_sfreq=args.target_sfreq,
         normalize=False,  # 相对功率尺度不变，无需逐试次 z-score
         use_64_channels=args.use_64_channels,
@@ -409,6 +419,8 @@ def main():
     payload = {
         "subject": args.subject,
         "task": "run_identity",
+        "eeg_task": args.task,
+        "top_k": args.top_k,
         "label_source": "meta.run",
         "runs": run_names,
         "original_classes": orig_class_names,
