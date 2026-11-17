@@ -64,7 +64,6 @@ SWEEP_FIELDS = [
     "cv_accuracy_ci_low",
     "cv_accuracy_ci_high",
     "cv_macro_f1_mean",
-    "p_value",
 ]
 
 
@@ -348,19 +347,18 @@ def print_sweep_table(rows: list[dict]) -> None:
     """打印频段扫描的汇总表。"""
     header = (
         f"{'config':<12}{'n_feat':>7}{'val':>8}{'test':>8}{'test_95CI':>17}"
-        f"{'cv_acc':>9}{'std':>7}{'macroF1':>9}{'p':>8}"
+        f"{'cv_acc':>9}{'std':>7}{'macroF1':>9}"
     )
     print("\n=== 频段扫描汇总 ===")
     print(header)
     print("-" * len(header))
     for row in rows:
-        p_value = f"{row['p_value']:.4f}" if row["p_value"] is not None else "-"
         val_text = f"{row['val_accuracy']:.4f}" if row["val_accuracy"] is not None else "-"
         ci_text = f"[{row['test_accuracy_ci_low']:.3f},{row['test_accuracy_ci_high']:.3f}]"
         print(
             f"{row['config']:<12}{row['n_features']:>7}{val_text:>8}"
             f"{row['test_accuracy']:>8.4f}{ci_text:>17}{row['cv_accuracy_mean']:>9.4f}"
-            f"{row['cv_accuracy_std']:>7.4f}{row['cv_macro_f1_mean']:>9.4f}{p_value:>8}"
+            f"{row['cv_accuracy_std']:>7.4f}{row['cv_macro_f1_mean']:>9.4f}"
         )
 
 
@@ -417,7 +415,6 @@ def run_sweep(
         accs = np.asarray(result["cv"][args.model]["accuracy"])
         f1s = np.asarray(result["cv"][args.model]["macro_f1"])
         cv_stats = result["cv"][args.model]
-        permutation = result["permutation"]
         rows.append(
             {
                 "subject": args.subject,
@@ -432,7 +429,6 @@ def run_sweep(
                 "cv_accuracy_ci_low": cv_stats["accuracy_ci_low"],
                 "cv_accuracy_ci_high": cv_stats["accuracy_ci_high"],
                 "cv_macro_f1_mean": float(f1s.mean()),
-                "p_value": permutation["p_value"] if permutation else None,
                 "detail": result,
             }
         )
