@@ -925,7 +925,7 @@ def parse_args():
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器")
     parser.add_argument("--leave-out", default="both", choices=("run", "day", "both"), help="留出 run（LORO）/ day（LODO）/ 两者都做")
     parser.add_argument("--folds", type=int, default=5, help="随机参考 CV 的折数")
-    parser.add_argument("--permutations", type=int, default=200, help="每个留一模式的置换次数；LORO 每折 45 组、成本较高，LODO 只有 5 折。0 表示跳过")
+    parser.add_argument("--permutations", type=int, default=2000, help="每个留一模式的置换次数；LORO 每折 45 组、成本较高，LODO 只有 5 折。0 表示跳过")
     parser.add_argument("--seed", type=int, default=42, help="随机参考 CV、配对 bootstrap 与置换的种子")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出根目录")
     parser.add_argument("--run-name", default=None, help="本次实验目录名，默认按时间命名")
