@@ -324,20 +324,21 @@ class RunLabelEEGDataset(Dataset):
 
 def split_indices(
     labels,
-    val_ratio: float = 0.1,
-    test_ratio: float = 0.1,
+    val_ratio: float = 0.0,
+    test_ratio: float = 0.2,
     seed: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """按 run 分层的随机划分，默认 8:1:1。
+    """按 run 分层的随机划分，默认 8:2（train:test = 4:1，不设 val）。
 
-    逐类（每个 run）独立分配 val/test，保证试次极少的 run 也能分到评估样本；
-    这比直接调用 ``train_test_split(stratify=...)`` 更稳，避免最少类只有 1 条时
-    二次分层报错。
+    逐类（每个 run）独立分配 test（以及可选的 val），保证试次极少的 run 也能
+    分到评估样本；这比直接调用 ``train_test_split(stratify=...)`` 更稳，避免
+    最少类只有 1 条时二次分层报错。``val_ratio=0`` 时 val 返回空数组。
     """
     labels = np.asarray(labels)
-    if not 0 < val_ratio < 1 or not 0 < test_ratio < 1 or val_ratio + test_ratio >= 1:
+    if not 0 <= val_ratio < 1 or not 0 < test_ratio < 1 or val_ratio + test_ratio >= 1:
         raise ValueError(
-            f"val_ratio/test_ratio 需为正且之和小于 1，收到 {val_ratio}/{test_ratio}"
+            f"val_ratio/test_ratio 需满足 0<=val<1、0<test<1、val+test<1，"
+            f"收到 {val_ratio}/{test_ratio}"
         )
 
     rng = np.random.default_rng(seed)
@@ -353,7 +354,7 @@ def split_indices(
         n_val = int(round(n * val_ratio))
         if n >= 2:
             n_test = max(n_test, 1)
-            if n - n_test >= 2:
+            if val_ratio > 0 and n - n_test >= 2:
                 n_val = max(n_val, 1)
         if n_test + n_val >= n:
             n_val = max(n - n_test - 1, 0)

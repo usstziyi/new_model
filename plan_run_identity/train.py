@@ -1,13 +1,13 @@
 """run 身份探针：把标签换成就诊试次所在的 run，看 EEG 能否解码 run。
 
-背景：``plan_baseline_lda`` 的句类分类用 8:1:1 随机划分，同一 run 的试次会同时
+背景：``plan_baseline_lda`` 的句类分类用 8:2 随机划分，同一 run 的试次会同时
 出现在 train 和 test 中。如果 run 本身在频谱特征上有强烈指纹（阻抗、疲劳、
 残余伪迹等），分类器可能借 run 走捷径。本实验把标签直接改成 ``meta["run"]``，
 用与 baseline 完全相同的特征和分类器跑一遍。数据直接由
 ``datasets/preprocessed/<subject>_<task>.csv`` 选 top-k 句类并从原始 run pkl
 加载，不经过 ``top10_imagine`` 中间产物：
 
-1. **同划分 holdout**：8:1:1 分层随机划分，报 val / test 的准确率与 macro-F1；
+1. **同划分 holdout**：8:2 分层随机划分（默认不设 val），报 test 的准确率与 macro-F1；
 2. **5 折交叉验证**：全量 2459 条上的稳定估计；
 3. **置换零分布**：全局打乱 run 标签后重复 5 折，给出随机水平和经验 p 值；
 4. **run × 句类混淆诊断**：统计每个 run 里句类的最多数占比，以及“只用 run
@@ -145,8 +145,8 @@ def parse_args():
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器：lda 收缩 LDA、logreg 逻辑回归或 svm RBF 核 SVM")
     parser.add_argument("--folds", type=int, default=5, help="交叉验证折数")
     parser.add_argument("--permutations", type=int, default=2000, help="置换检验次数，0 表示跳过")
-    parser.add_argument("--val-ratio", type=float, default=0.1, help="验证集比例")
-    parser.add_argument("--test-ratio", type=float, default=0.1, help="测试集比例")
+    parser.add_argument("--val-ratio", type=float, default=0.0, help="验证集比例，默认 0（8:2，不设 val）")
+    parser.add_argument("--test-ratio", type=float, default=0.2, help="测试集比例（默认 0.2，对应 8:2）")
     parser.add_argument("--split-seed", type=int, default=42, help="划分种子")
     parser.add_argument("--seed", type=int, default=42, help="CV 与置换的随机种子")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出根目录")
@@ -235,9 +235,12 @@ def evaluate(
     n_perm: int,
 ) -> tuple:
     
-    # 1. “留出法”即在固定的 8:1:1 划分上训练一次，报告 val / test 的 holdout 指标
+    # 1. “留出法”即在固定的 8:2 划分上训练一次，默认只报告 test 的 holdout 指标
+    eval_sets = {"test": test_idx}
+    if len(val_idx) > 0:
+        eval_sets["val"] = val_idx
     model, holdout = holdout_report(
-        feats, y, train_idx, {"val": val_idx, "test": test_idx}, run_names, model_name
+        feats, y, train_idx, eval_sets, run_names, model_name
     )
     # 2. 全量数据 5 折交叉验证，其均值作为置换检验的观测值
     accs, f1s = cross_validate(feats, y, model_name, folds, seed)
@@ -284,8 +287,9 @@ def print_sweep_table(rows: list[dict]) -> None:
     print("-" * len(header))
     for row in rows:
         p_value = f"{row['p_value']:.4f}" if row["p_value"] is not None else "-"
+        val_text = f"{row['val_accuracy']:.4f}" if row["val_accuracy"] is not None else "-"
         print(
-            f"{row['config']:<12}{row['n_features']:>7}{row['val_accuracy']:>8.4f}"
+            f"{row['config']:<12}{row['n_features']:>7}{val_text:>8}"
             f"{row['test_accuracy']:>8.4f}{row['cv_accuracy_mean']:>9.4f}"
             f"{row['cv_accuracy_std']:>7.4f}{row['cv_macro_f1_mean']:>9.4f}{p_value:>8}"
         )
@@ -345,7 +349,7 @@ def run_sweep(feats, y, run_names, orig_class_names, confound, train_idx, val_id
             {
                 "config": label,
                 "n_features": result["n_features"],
-                "val_accuracy": holdout["val"]["accuracy"],
+                "val_accuracy": holdout.get("val", {}).get("accuracy"),
                 "test_accuracy": holdout["test"]["accuracy"],
                 "cv_accuracy_mean": float(accs.mean()),
                 "cv_accuracy_std": float(accs.std()),
@@ -588,7 +592,7 @@ def run_subject(args, out_dir: Path) -> None:
         flush=True,
     )
 
-    # ---------- 1. 8:1:1 分层随机划分 ----------
+    # ---------- 1. 8:2 分层随机划分（默认不设 val） ----------
     train_idx, val_idx, test_idx = split_indices(
         y, args.val_ratio, args.test_ratio, args.split_seed
     )
@@ -617,6 +621,8 @@ def run_subject(args, out_dir: Path) -> None:
     )
     holdout = result["holdout"]
     for name in ("val", "test"):
+        if name not in holdout:
+            continue
         m = holdout[name]
         print(
             f"  [{args.model}] {name:<4} acc={m['accuracy']:.4f} macro_f1={m['macro_f1']:.4f} "
@@ -713,9 +719,9 @@ def run_subject(args, out_dir: Path) -> None:
         "n_samples": int(len(y)),
         "n_runs": num_runs,
         "chance_accuracy": float(1 / num_runs),
-        "val_accuracy": holdout["val"]["accuracy"],
-        "val_macro_f1": holdout["val"]["macro_f1"],
-        "val_weighted_f1": holdout["val"]["weighted_f1"],
+        "val_accuracy": holdout.get("val", {}).get("accuracy"),
+        "val_macro_f1": holdout.get("val", {}).get("macro_f1"),
+        "val_weighted_f1": holdout.get("val", {}).get("weighted_f1"),
         "test_accuracy": holdout["test"]["accuracy"],
         "test_macro_f1": holdout["test"]["macro_f1"],
         "test_weighted_f1": holdout["test"]["weighted_f1"],

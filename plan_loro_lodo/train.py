@@ -835,12 +835,8 @@ def run_subject(args, out_dir: Path) -> list[dict]:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="leave-one-run-out / leave-one-day-out 句类分类（log 频带功率 + 线性分类器）。"
-    )
-    parser.add_argument(
-        "--subject", nargs="+", default=["sub-01"], help="被试编号，可指定多个，如 --subject sub-01 sub-02"
-    )
+    parser = argparse.ArgumentParser(description="leave-one-run-out / leave-one-day-out 句类分类（log 频带功率 + 线性分类器）。")
+    parser.add_argument("--subject", nargs="+", default=["sub-01"], help="被试编号，可指定多个，如 --subject sub-01 sub-02")
     parser.add_argument("--task", default="imagine", choices=("imagine", "reading"), help="读取哪一组 CSV / run pkl")
     parser.add_argument("--top-k", type=int, default=10, help="保留样本数最多的前 k 个句类")
     parser.add_argument("--csv-root", type=Path, default=CSV_ROOT, help="试次表 CSV 目录")

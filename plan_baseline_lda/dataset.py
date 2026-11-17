@@ -1,31 +1,37 @@
-"""Top-10 类 EEG 数据集（按类别导出的 pkl，随机划分实验）。
+"""Top-k 类 EEG 数据集：直接由试次表 CSV + 原始 run pkl 构造。
 
-读取 ``datasets/top10_imagine/<subject>/class_<id>.pkl``（由
-``scripts/export_top_classes.py`` 生成），把所有类别拼成一个数据集，并把原始
-``type_number`` 重映射为连续的 ``0..C-1`` 标签。
+与 ``plan_run_identity/dataset.py`` 同源，只是标签换成句类 ``type_number``，
+不再依赖 ``datasets/top10_imagine`` / ``datasets/top10_reading`` 中间产物。
 
-每个 pkl 的内容::
+数据来源（均相对项目根目录）::
 
-    {
-        "subject": "sub-01", "task": "imagine",
-        "type_number": 10, "type_name": "求职和职业发展",
-        "sfreq": 500.0, "n_channels": 122, "unit": "V",
-        "eeg": np.ndarray,   # (N, 122, T)，单位 V
-        "text": list[str],
-        "meta": list[dict],  # index / day / run / pos / n_chars
-    }
+    datasets/preprocessed/<subject>_<task>.csv
+        每行一句中文句子：index / day / run / pos / sentence / n_chars / type_number / type_name
+    datasets/ds005170-download/derivatives/preprocessed_pkl/<subject>/eeg/
+        <subject>_task-<read|imagine>_run-<NNN>_eeg.pkl
+        每个 pkl 是该 run 的试次列表，每项 {"text": str, "input_features": (1, 125, T)}
 
-与 ``plan_classification`` 的区别：不再按 day / run 取 pkl，而是一次性把所有
-试次读进内存，随机分层划分为 train / val / test（默认 8:1:1）。``meta`` 里的
-day / run 只保留作事后诊断，不参与划分。
+流程：
 
-内存：2459 × 122 × 1651 × 4B ≈ 2 GB，跑之前确认机器有余量。
+1. 读取 CSV 全部行，按 ``type_number`` 出现次数取前 ``top_k`` 类；
+2. 只保留这些类的行，按 ``(type_number, run, pos)`` 排序
+   —— 与原先 top-k 中间产物的顺序一致，结果可直接对比；
+3. 按 run 分组，每个 run 的 pkl 只解包一次，用 ``(run, pos)`` 定位试次，
+   取前 122 个 EEG 通道，拼成 ``(N, 122, T)`` 并常驻内存。
+
+标签构造：把选中的 ``type_number`` 按升序重映射为连续的 ``0..C-1``。``meta``
+里的 day / run 只保留作事后诊断，不参与训练；随机划分见 ``split_indices``
+（默认 8:2，不设 val）。
+
+通道：pkl 的 125 通道 = 122 EEG + ``VEO`` + ``HEO`` + ``Trigger``，本模块只取
+前 122 个，顺序以 ``scripts/channels_122.csv`` 为基准；``use_64_channels=True``
+时按 ``channels_64`` 的顺序取 64 个。pkl 采样值为伏特，加载时统一换算成微伏。
 
 用法::
 
     from dataset import TopClassEEGDataset, split_indices
 
-    ds = TopClassEEGDataset("sub-01")
+    ds = TopClassEEGDataset("sub-01", task="imagine", top_k=10)
     train_idx, val_idx, test_idx = split_indices(ds.labels, seed=42)
 """
 
@@ -35,23 +41,32 @@ import csv
 import pickle
 import re
 import unicodedata
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
 import torch
-from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TOP_ROOT = PROJECT_ROOT / "datasets/top10_imagine"
+CSV_ROOT = PROJECT_ROOT / "datasets/preprocessed"
+PKL_ROOT = PROJECT_ROOT / "datasets/ds005170-download/derivatives/preprocessed_pkl"
 CHANNELS_CSV = PROJECT_ROOT / "scripts/channels_122.csv"
 
 SFREQ = 500
 N_EEG_CHANNELS = 122
 # pkl 里的采样值是伏特（MNE 约定），网络侧统一用微伏
 VOLT_TO_MICROVOLT = 1e6
+# CSV 里作为句类标签的列
+LABEL_COLUMN = "type_number"
 
-_FILE_PATTERN = re.compile(r"class_(?P<type_number>\d+)\.pkl$")
+# 传入的 task -> (CSV 文件名后缀, pkl 文件名里的 task 字段)
+TASK_ALIASES = {
+    "reading": ("reading", "read"),
+    "imagine": ("imagine", "imagine"),
+}
+
+_FILE_PATTERN = re.compile(r"_task-(?P<task>[a-z]+)_run-(?P<run>\d+)_eeg\.pkl$")
 
 channels_64 = [
     # 额极层（最前）
@@ -97,30 +112,47 @@ def resolve_channel_indices(selected, available) -> np.ndarray:
             indices.append(index)
     if missing:
         raise ValueError(f"以下通道在 fif 顺序中不存在: {missing}")
+    if len(set(indices)) != len(indices):
+        raise ValueError("channels_64 中存在重复通道")
     return np.asarray(indices, dtype=np.int64)
 
 
+def read_rows(csv_path: Path) -> list[dict]:
+    with Path(csv_path).open(encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
 class TopClassEEGDataset(Dataset):
-    """把所有类别 pkl 拼成一个数据集，标签重映射为 ``0..C-1``。
+    """由 CSV 选 top-k 句类并加载 EEG，标签为句类。
 
     Args:
         subject: 被试编号，如 ``sub-01``。
-        root: ``top10_imagine`` 的根目录。
+        task: ``imagine`` / ``reading``，决定读哪张 CSV 与哪组 run pkl。
+        top_k: 按 ``type_number`` 出现次数保留前 k 类，默认 10。
         target_sfreq: 返回数据的采样率，默认 500 Hz（不降采样）。
         normalize: 是否对每个试次的每条通道做 z-score，默认 ``True``。
         use_64_channels: 为 ``True`` 时只取 ``channels_64`` 的 64 个通道。
         dtype: 内存中保存的数据类型，默认 ``float32``。
+        csv_root: 试次表目录。
+        pkl_root: ``derivatives/preprocessed_pkl`` 目录。
     """
 
     def __init__(
         self,
         subject: str = "sub-01",
-        root: Path = TOP_ROOT,
+        task: str = "imagine",
+        top_k: int = 10,
         target_sfreq: float = 500.0,
         normalize: bool = True,
         use_64_channels: bool = False,
         dtype: np.dtype = np.float32,
+        csv_root: Path = CSV_ROOT,
+        pkl_root: Path = PKL_ROOT,
     ):
+        if task.lower() not in TASK_ALIASES:
+            raise ValueError(f"task 需为 reading/imagine 之一，收到 {task!r}")
+        label, pkl_task = TASK_ALIASES[task.lower()]
+
         if target_sfreq <= 0 or target_sfreq > SFREQ:
             raise ValueError(f"target_sfreq 需在 (0, {SFREQ}] 内，收到 {target_sfreq}")
         ratio = SFREQ / target_sfreq
@@ -129,19 +161,76 @@ class TopClassEEGDataset(Dataset):
         self._decimate = int(ratio)
 
         self.subject = subject
+        self.task = label
+        self.pkl_task = pkl_task
+        self.top_k = top_k
         self.normalize = normalize
+        self._dtype = np.dtype(dtype)
 
-        self.class_dir = Path(root) / subject
-        if not self.class_dir.is_dir():
-            raise FileNotFoundError(f"找不到类别目录: {self.class_dir}")
-        paths = sorted(
-            (path for path in self.class_dir.glob("class_*.pkl") if _FILE_PATTERN.search(path.name)),
-            key=lambda path: int(_FILE_PATTERN.search(path.name)["type_number"]),
+        # ---------- 1. CSV 选类 ----------
+        csv_path = Path(csv_root) / f"{subject}_{label}.csv"
+        rows = read_rows(csv_path)
+        if not rows:
+            raise RuntimeError(f"{csv_path} 没有任何样本")
+        missing = [row["index"] for row in rows if not row[LABEL_COLUMN]]
+        if missing:
+            raise ValueError(f"{csv_path} 有 {len(missing)} 行缺少 {LABEL_COLUMN}")
+
+        counts = Counter(int(row[LABEL_COLUMN]) for row in rows)
+        top = counts.most_common(top_k)
+        wanted = {class_id for class_id, _ in top}
+        class_names = {
+            int(row[LABEL_COLUMN]): row.get("type_name", "") for row in rows
+        }
+        print(f"[CSV] {csv_path} 共 {len(rows)} 条，选出 {len(top)} 类：")
+        name_width = max(_display_width(class_names[class_id]) for class_id, _ in top)
+        header = f"{'rank':>4}  {'class':<{name_width}}  {'type':>4}  {'count':>5}"
+        print(header)
+        print("-" * len(header))
+        for rank, (class_id, count) in enumerate(top, start=1):
+            name = class_names[class_id]
+            pad = " " * (name_width - _display_width(name))
+            print(f"{rank:>4}  {name}{pad}  {class_id:>4}  {count:>5}")
+
+        rows = [row for row in rows if int(row[LABEL_COLUMN]) in wanted]
+        # 与原先 top-k pkl（按类别拼接、类内 run/pos 升序）保持同一顺序
+        rows.sort(
+            key=lambda row: (
+                int(row[LABEL_COLUMN]),
+                int(row["run"]),
+                int(row["pos"]),
+            )
         )
-        if not paths:
-            raise FileNotFoundError(f"{self.class_dir} 下没有 class_*.pkl")
+        self.rows = rows
 
-        # 通道顺序基准：channels_122.csv；use_64_channels 时取子集并重排
+        # 原始句类标签 -> 连续编号（按 type_number 升序，便于阅读与对比）
+        self.class_ids = sorted(wanted)
+        self.class_names = [class_names[class_id] for class_id in self.class_ids]
+        class_to_label = {
+            class_id: index for index, class_id in enumerate(self.class_ids)
+        }
+        self.labels = np.asarray(
+            [class_to_label[int(row[LABEL_COLUMN])] for row in rows], dtype=np.int64
+        )
+        self.targets = torch.from_numpy(self.labels)
+
+        # ---------- 2. run 信息（仅用于诊断） ----------
+        raw_runs = [int(row["run"]) for row in rows]
+        self.run_ids = sorted(set(raw_runs))
+        self.run_names = [f"run_{run:02d}" for run in self.run_ids]
+        self.meta = [
+            {
+                "index": int(row["index"]),
+                "day": int(row["day"]),
+                "run": int(row["run"]),
+                "pos": int(row["pos"]),
+                "n_chars": int(row["n_chars"]),
+            }
+            for row in rows
+        ]
+        self.texts = [row.get("sentence", "") for row in rows]
+
+        # ---------- 3. 通道基准 ----------
         self.channel_names = load_channel_names()
         if use_64_channels:
             self._channel_indices = resolve_channel_indices(channels_64, self.channel_names)
@@ -150,45 +239,62 @@ class TopClassEEGDataset(Dataset):
             self._channel_indices = None
         self.n_channels = len(self.channel_names)
 
-        arrays: list[np.ndarray] = []
-        labels: list[int] = []
-        self.class_ids: list[int] = []
-        self.class_names: list[str] = []
-        self.texts: list[str] = []
-        self.meta: list[dict] = []
+        # ---------- 4. 按 run 加载 EEG ----------
+        self.eeg_dir = Path(pkl_root) / subject / "eeg"
+        pkl_paths: dict[int, Path] = {}
+        for path in self.eeg_dir.glob(f"{subject}_task-{pkl_task}_run-*_eeg.pkl"):
+            match = _FILE_PATTERN.search(path.name)
+            if match is not None:
+                pkl_paths[int(match["run"])] = path
 
-        for new_label, path in enumerate(paths):
+        # run 编号 -> 样本在 rows/data 中的下标；按 run 解包 pkl 时只取需要的试次
+        rows_by_run: dict[int, list[int]] = defaultdict(list)
+        for index, run in enumerate(raw_runs):
+            rows_by_run[run].append(index)
+
+        data = None
+        for run in self.run_ids:
+            path = pkl_paths.get(run)
+            if path is None:
+                raise FileNotFoundError(f"缺少 run-{run} 的 pkl（目录 {self.eeg_dir}）")
             with path.open("rb") as handle:
-                payload = pickle.load(handle)
+                items = pickle.load(handle)
 
-            eeg = np.asarray(payload["eeg"], dtype=dtype)
-            if eeg.ndim != 3 or eeg.shape[1] < N_EEG_CHANNELS:
-                raise RuntimeError(f"{path.name} 的 eeg 形状异常: {eeg.shape}")
-            eeg = eeg[:, :N_EEG_CHANNELS]
-            if self._channel_indices is not None:
-                eeg = eeg[:, self._channel_indices, :]
-            if self._decimate > 1:
-                eeg = eeg[:, :, :: self._decimate]
+            indices = rows_by_run[run]
+            for index in indices:
+                pos = int(rows[index]["pos"])
+                if pos >= len(items):
+                    raise IndexError(
+                        f"run-{run} 的 pkl 只有 {len(items)} 条，pos={pos} 越界"
+                    )
+                eeg = np.asarray(items[pos]["input_features"])
+                if eeg.ndim == 3 and eeg.shape[0] == 1:
+                    eeg = eeg[0]
+                if eeg.ndim != 2 or eeg.shape[0] < N_EEG_CHANNELS:
+                    raise RuntimeError(
+                        f"run-{run} pos={pos} 的 input_features 形状异常: {eeg.shape}"
+                    )
+                eeg = eeg[:N_EEG_CHANNELS]
+                if self._channel_indices is not None:
+                    eeg = eeg[self._channel_indices]
+                if self._decimate > 1:
+                    eeg = eeg[:, :: self._decimate]
 
-            self.class_ids.append(int(payload["type_number"]))
-            self.class_names.append(str(payload.get("type_name", "")))
-            arrays.append(np.ascontiguousarray(eeg))
-            labels.extend([new_label] * len(eeg))
-            self.texts.extend(payload.get("text", [""] * len(eeg)))
-            self.meta.extend(payload.get("meta", [{} for _ in range(len(eeg))]))
-            print(
-                f"[Load] {path.name} type_number={payload['type_number']} "
-                f"-> label={new_label} shape={eeg.shape}",
-                flush=True,
-            )
+                if data is None:
+                    data = np.empty(
+                        (len(rows), self.n_channels, eeg.shape[-1]), dtype=self._dtype
+                    )
+                elif eeg.shape[-1] != data.shape[-1]:
+                    raise RuntimeError(
+                        f"run-{run} pos={pos} 的试次长度 {eeg.shape[-1]} "
+                        f"与其他试次 {data.shape[-1]} 不一致"
+                    )
+                data[index] = eeg * VOLT_TO_MICROVOLT  # V -> µV，写入时转 dtype
+            print(f"[Load] run-{run:>02} 共 {len(items)} 条，选中 {len(indices)} 条", flush=True)
+            del items
 
-        lengths = {array.shape[-1] for array in arrays}
-        if len(lengths) != 1:
-            raise RuntimeError(f"各类别试次长度不一致: {sorted(lengths)}")
-
-        data = np.concatenate(arrays, axis=0)
-        del arrays
-        data *= VOLT_TO_MICROVOLT  # V -> µV，原地修改
+        if data is None:
+            raise RuntimeError("没有加载到任何试次")
 
         if self.normalize:
             mean = data.mean(axis=-1, keepdims=True)
@@ -197,11 +303,10 @@ class TopClassEEGDataset(Dataset):
             data /= np.maximum(std, 1e-6)
 
         self.data = torch.from_numpy(data)
-        self.labels = np.asarray(labels, dtype=np.int64)
-        self.targets = torch.from_numpy(self.labels)
 
         print(
-            f"[Dataset] {subject} 共 {len(self.labels)} 条 / {len(self.class_ids)} 类 | "
+            f"[Dataset] {subject} {label} 共 {len(self.labels)} 条 / {len(self.class_ids)} 类 / "
+            f"{len(self.run_ids)} 个 run | "
             f"x {tuple(self.data.shape)} {self.data.dtype} | "
             f"channels={self.n_channels} | sfreq={SFREQ // self._decimate:g} Hz",
             flush=True,
@@ -211,40 +316,55 @@ class TopClassEEGDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, index: int):
-        """返回 ``(1, E, T)`` float32 与重映射后的标签。"""
+        """返回 ``(1, E, T)`` float32 与句类标签。"""
         return self.data[index].unsqueeze(0), int(self.labels[index])
 
 
 def split_indices(
     labels,
-    val_ratio: float = 0.1,
-    test_ratio: float = 0.1,
+    val_ratio: float = 0.0,
+    test_ratio: float = 0.2,
     seed: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """按类别分层的随机划分，默认 8:1:1。
+    """按句类分层的随机划分，默认 8:2（train:test = 4:1，不设 val）。
 
-    先切出 ``val_ratio + test_ratio`` 的临时集，再在临时集内按 ``val:test``
-    比例二次分层，保证每类在两个集合里的比例一致。
+    逐类独立分配 test（以及可选的 val），保证每类都能分到评估样本；这比直接
+    调用 ``train_test_split(stratify=...)`` 更稳，避免最小类只有 1 条时二次
+    分层报错。``val_ratio=0`` 时 val 返回空数组。
     """
     labels = np.asarray(labels)
-    if not 0 < val_ratio < 1 or not 0 < test_ratio < 1 or val_ratio + test_ratio >= 1:
+    if not 0 <= val_ratio < 1 or not 0 < test_ratio < 1 or val_ratio + test_ratio >= 1:
         raise ValueError(
-            f"val_ratio/test_ratio 需为正且之和小于 1，收到 {val_ratio}/{test_ratio}"
+            f"val_ratio/test_ratio 需满足 0<=val<1、0<test<1、val+test<1，"
+            f"收到 {val_ratio}/{test_ratio}"
         )
 
-    indices = np.arange(len(labels))
-    holdout = val_ratio + test_ratio
-    train_idx, rest_idx = train_test_split(
-        indices, test_size=holdout, stratify=labels, random_state=seed
+    rng = np.random.default_rng(seed)
+    train_parts: list[np.ndarray] = []
+    val_parts: list[np.ndarray] = []
+    test_parts: list[np.ndarray] = []
+
+    for label in np.unique(labels):
+        index = np.flatnonzero(labels == label)
+        rng.shuffle(index)
+        n = len(index)
+        n_test = int(round(n * test_ratio))
+        n_val = int(round(n * val_ratio))
+        if n >= 2:
+            n_test = max(n_test, 1)
+            if val_ratio > 0 and n - n_test >= 2:
+                n_val = max(n_val, 1)
+        if n_test + n_val >= n:
+            n_val = max(n - n_test - 1, 0)
+        test_parts.append(index[:n_test])
+        val_parts.append(index[n_test : n_test + n_val])
+        train_parts.append(index[n_test + n_val :])
+
+    return (
+        np.sort(np.concatenate(train_parts)),
+        np.sort(np.concatenate(val_parts)),
+        np.sort(np.concatenate(test_parts)),
     )
-    val_share = val_ratio / holdout
-    val_idx, test_idx = train_test_split(
-        rest_idx,
-        test_size=1.0 - val_share,
-        stratify=labels[rest_idx],
-        random_state=seed,
-    )
-    return np.sort(train_idx), np.sort(val_idx), np.sort(test_idx)
 
 
 def _display_width(text: str) -> int:
@@ -253,7 +373,7 @@ def _display_width(text: str) -> int:
 
 
 def main() -> None:
-    """冒烟检查：加载全量数据，打印划分比例与一个 batch。"""
+    """冒烟检查：加载全量数据，打印类别分布、划分比例与一个 batch。"""
     from torch.utils.data import DataLoader, Subset
 
     dataset = TopClassEEGDataset("sub-01")
@@ -266,7 +386,7 @@ def main() -> None:
         for split_name, idx in splits.items()
     }
 
-    rows = [f"{label} {class_name}" for label, class_name in enumerate(dataset.class_names)]
+    rows = [f"{label} {name}" for label, name in enumerate(dataset.class_names)]
     name_width = max(_display_width(row) for row in rows + ["类别"])
 
     col_width = 8
@@ -282,7 +402,7 @@ def main() -> None:
         print(format_row(label=row, values=[counts[split_name][index] for split_name in splits]))
     print(rule)
     print(format_row(label="汇总", values=[len(idx) for idx in splits.values()]))
-    
+
     loader = DataLoader(Subset(dataset, train_idx), batch_size=4, shuffle=True)
     x, y = next(iter(loader))
     print(f"batch: x {tuple(x.shape)} {x.dtype} | y {y.tolist()}")

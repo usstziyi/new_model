@@ -1,13 +1,16 @@
 """训练并评估线性基线：log 频带功率 + 收缩 LDA / 逻辑回归 / RBF SVM。
 
 深度模型的验证/测试指标必须和这里的数字比较，过不了这条线就不该继续加大模型。
+数据直接由 ``datasets/preprocessed/<subject>_<task>.csv`` 选 top-k 句类并从原始
+run pkl 加载（见 ``dataset.py``），不经过 ``top10_imagine`` / ``top10_reading``
+中间产物。
 
 评估内容：
 
 1. **同划分对照**：用 ``dataset.split_indices`` 复现 ``plan_top10_random/train.py``
-   的 8:1:1 划分，在 val / test 上给出准确率与 macro-F1，可直接和 PMCNN 的
-   ``history.csv`` 对比；
-2. **5 折交叉验证**：全量 2459 条上的稳定估计（均值 ± 标准差）；
+   的 8:2 划分（train:test = 4:1，默认不设 val），在 test 上给出准确率与
+   macro-F1，可直接和 PMCNN 的 ``history.csv`` 对比；
+2. **5 折交叉验证**：全量样本上的稳定估计（均值 ± 标准差）；
 3. **置换零分布**：全局打乱标签后重复 5 折，给出随机水平与经验 p 值；
 4. **频段扫描**（``--sweep-bands``）：all / 单频段 / 留一频段共 11 种配置，Welch 只算一次。
 
@@ -24,6 +27,9 @@
 
 
     uv run plan_baseline_lda/train.py
+    uv run plan_baseline_lda/train.py --subject sub-01 sub-02
+    uv run plan_baseline_lda/train.py --task reading      # 句朗读任务
+    uv run plan_baseline_lda/train.py --top-k 10
     uv run plan_baseline_lda/train.py --model svm      # RBF 核 SVM
     uv run plan_baseline_lda/train.py --model logreg
     uv run plan_baseline_lda/train.py --use-64-channels
@@ -35,6 +41,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from datetime import datetime
 from pathlib import Path
@@ -43,11 +50,83 @@ import numpy as np
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import StratifiedKFold
 
-from dataset import TOP_ROOT, TopClassEEGDataset, split_indices
+from dataset import CSV_ROOT, PKL_ROOT, TopClassEEGDataset, split_indices
 from model import BANDS, extract_features, make_model
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "baseline_lda"
+
+REPORT_FIELDS = ["subject", "label", "precision", "recall", "f1", "support"]
+SUMMARY_FIELDS = [
+    "subject",
+    "eeg_task",
+    "top_k",
+    "band_mode",
+    "model",
+    "n_features",
+    "n_samples",
+    "n_runs",
+    "chance_accuracy",
+    "val_accuracy",
+    "val_macro_f1",
+    "val_weighted_f1",
+    "test_accuracy",
+    "test_macro_f1",
+    "test_weighted_f1",
+    "cv_accuracy_mean",
+    "cv_accuracy_std",
+    "cv_macro_f1_mean",
+    "cv_macro_f1_std",
+    "permutation_n",
+    "permutation_null_mean",
+    "permutation_null_p95",
+    "permutation_z",
+    "permutation_p",
+]
+
+
+def write_rows(path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
+    """把字典列表写成 UTF-8-SIG CSV（Excel 可直接打开）。"""
+    if not rows:
+        return
+    fieldnames = fieldnames or list(rows[0])
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def save_classification_csv(path: Path, subject: str, report: dict) -> None:
+    """把 ``classification_report(output_dict=True)`` 写成逐类 CSV。"""
+    total_support = sum(
+        metrics["support"]
+        for label, metrics in report.items()
+        if isinstance(metrics, dict) and label not in ("macro avg", "weighted avg", "samples avg")
+    )
+    rows = []
+    for label, metrics in report.items():
+        if isinstance(metrics, dict):
+            row = {
+                "subject": subject,
+                "label": label,
+                "precision": metrics["precision"],
+                "recall": metrics["recall"],
+                "f1": metrics["f1-score"],
+                "support": metrics["support"],
+            }
+        elif label == "accuracy":  # output_dict 模式下 accuracy 是标量
+            row = {
+                "subject": subject,
+                "label": label,
+                "precision": metrics,
+                "recall": metrics,
+                "f1": metrics,
+                "support": total_support,
+            }
+        else:
+            continue
+        rows.append(row)
+    write_rows(path, rows, REPORT_FIELDS)
 
 
 def cross_validate(X, y, model_name: str, folds: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -107,8 +186,13 @@ def holdout_report(X, y, train_idx, eval_sets, class_names, model_name):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="log 频带功率 + 线性分类器基线（LDA / logreg / SVM）。")
-    parser.add_argument("--subject", default="sub-01", help="被试编号")
-    parser.add_argument("--data-root", type=Path, default=TOP_ROOT, help="top10_imagine 根目录")
+    parser.add_argument(
+        "--subject", nargs="+", default=["sub-01"], help="被试编号，可指定多个，如 --subject sub-01 sub-02"
+    )
+    parser.add_argument("--task", default="imagine", choices=("imagine", "reading"), help="读取哪一组 CSV / run pkl")
+    parser.add_argument("--top-k", type=int, default=10, help="保留样本数最多的前 k 个句类")
+    parser.add_argument("--csv-root", type=Path, default=CSV_ROOT, help="试次表 CSV 目录")
+    parser.add_argument("--pkl-root", type=Path, default=PKL_ROOT, help="preprocessed_pkl 根目录")
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--use-64-channels", action="store_true", help="只用 64 通道")
     parser.add_argument("--bands-mode", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
@@ -116,8 +200,8 @@ def parse_args():
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器：lda 收缩 LDA（主基线）、logreg 逻辑回归或 svm RBF 核 SVM")
     parser.add_argument("--folds", type=int, default=5, help="交叉验证折数")
     parser.add_argument("--permutations", type=int, default=200, help="置换检验次数，0 表示跳过")
-    parser.add_argument("--val-ratio", type=float, default=0.1, help="验证集比例（与 train.py 一致）")
-    parser.add_argument("--test-ratio", type=float, default=0.1, help="测试集比例（与 train.py 一致）")
+    parser.add_argument("--val-ratio", type=float, default=0.0, help="验证集比例，默认 0（8:2，不设 val）")
+    parser.add_argument("--test-ratio", type=float, default=0.2, help="测试集比例（默认 0.2，对应 8:2）")
     parser.add_argument("--split-seed", type=int, default=42, help="划分种子（与 train.py 一致）")
     parser.add_argument("--seed", type=int, default=42, help="CV 与置换的随机种子")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出根目录")
@@ -156,8 +240,11 @@ def evaluate(
     n_perm: int,
 ) -> tuple:
     """一次完整评估：holdout + 交叉验证 + 置换零分布。"""
+    eval_sets = {"test": test_idx}
+    if len(val_idx) > 0:
+        eval_sets["val"] = val_idx
     model, holdout = holdout_report(
-        feats, y, train_idx, {"val": val_idx, "test": test_idx}, class_names, model_name
+        feats, y, train_idx, eval_sets, class_names, model_name
     )
     accs, f1s = cross_validate(feats, y, model_name, folds, seed)
     permutation = None
@@ -202,8 +289,9 @@ def print_sweep_table(rows: list[dict]) -> None:
     print("-" * len(header))
     for row in rows:
         p_value = f"{row['p_value']:.4f}" if row["p_value"] is not None else "-"
+        val_text = f"{row['val_accuracy']:.4f}" if row["val_accuracy"] is not None else "-"
         print(
-            f"{row['config']:<12}{row['n_features']:>7}{row['val_accuracy']:>8.4f}"
+            f"{row['config']:<12}{row['n_features']:>7}{val_text:>8}"
             f"{row['test_accuracy']:>8.4f}{row['cv_accuracy_mean']:>9.4f}"
             f"{row['cv_accuracy_std']:>7.4f}{row['cv_macro_f1_mean']:>9.4f}{p_value:>8}"
         )
@@ -234,7 +322,7 @@ def run_sweep(feats, y, class_names, train_idx, val_idx, test_idx, args, out_dir
             {
                 "config": label,
                 "n_features": result["n_features"],
-                "val_accuracy": holdout["val"]["accuracy"],
+                "val_accuracy": holdout.get("val", {}).get("accuracy"),
                 "test_accuracy": holdout["test"]["accuracy"],
                 "cv_accuracy_mean": float(accs.mean()),
                 "cv_accuracy_std": float(accs.std()),
@@ -252,6 +340,9 @@ def run_sweep(feats, y, class_names, train_idx, val_idx, test_idx, args, out_dir
     print_sweep_table(rows)
     payload = {
         "subject": args.subject,
+        "task": "baseline_lda_classification_sweep",
+        "eeg_task": args.task,
+        "top_k": args.top_k,
         "classes": class_names,
         "n_samples": int(len(y)),
         "bands": {k: list(v) for k, v in BANDS.items()},
@@ -275,12 +366,14 @@ def run_sweep(feats, y, class_names, train_idx, val_idx, test_idx, args, out_dir
     print(f"[Saved] {sweep_path}")
 
 
-def main():
-    args = parse_args()
-
+def run_subject(args, out_dir: Path) -> list[dict]:
+    """完成一个被试的评估并落盘，返回 summary 行。"""
     dataset = TopClassEEGDataset(
         subject=args.subject,
-        root=args.data_root,
+        task=args.task,
+        top_k=args.top_k,
+        csv_root=args.csv_root,
+        pkl_root=args.pkl_root,
         target_sfreq=args.target_sfreq,
         normalize=False,  # 相对功率尺度不变，无需逐试次 z-score
         use_64_channels=args.use_64_channels,
@@ -289,6 +382,11 @@ def main():
     class_names = list(dataset.class_names)
     num_classes = len(class_names)
     sfreq = float(args.target_sfreq)
+
+    min_class = int(np.bincount(y).min())
+    if args.folds > min_class:
+        print(f"[Warn] 最小的句类只有 {min_class} 条，折数从 {args.folds} 降到 {min_class}")
+        args.folds = min_class
 
     # feats: (N, 610)
     feats = extract_features(dataset.data.numpy(), sfreq, args.bands_mode)
@@ -299,19 +397,15 @@ def main():
         flush=True,
     )
 
-    # ---------- 1. 与 train.py 相同的 8:1:1 划分 ----------
+    # ---------- 1. 与 train.py 相同的 8:2 划分（默认不设 val） ----------
     train_idx, val_idx, test_idx = split_indices(
         y, args.val_ratio, args.test_ratio, args.split_seed
     )
     print(f"[Split] train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
-    run_name = args.run_name or f"baseline_{datetime.now():%Y%m%d_%H%M%S}"
-    out_dir = args.out_dir / run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     if args.sweep_bands:
         run_sweep(feats, y, class_names, train_idx, val_idx, test_idx, args, out_dir)
-        return
+        return []
 
     model, result = evaluate(
         feats, y, class_names, train_idx, val_idx, test_idx,
@@ -319,22 +413,37 @@ def main():
     )
     holdout = result["holdout"]
     for name in ("val", "test"):
+        if name not in holdout:
+            continue
         m = holdout[name]
         print(
             f"  [{args.model}] {name:<4} acc={m['accuracy']:.4f} macro_f1={m['macro_f1']:.4f} "
             f"weighted_f1={m['weighted_f1']:.4f} (n={m['n_samples']})"
         )
     print(f"\n测试集分类报告（{args.model}）:")
+    pred_test = model.predict(feats[test_idx])
+    report_dict = classification_report(
+        y[test_idx],
+        pred_test,
+        labels=list(range(num_classes)),
+        target_names=class_names,
+        digits=3,
+        zero_division=0,
+        output_dict=True,
+    )
     print(
         classification_report(
             y[test_idx],
-            model.predict(feats[test_idx]),
+            pred_test,
             labels=list(range(num_classes)),
             target_names=class_names,
             digits=3,
             zero_division=0,
         )
     )
+    report_path = out_dir / f"classification_report_{args.subject}.csv"
+    save_classification_csv(report_path, args.subject, report_dict)
+    print(f"[Saved] {report_path}")
 
     # ---------- 2. 5 折交叉验证 ----------
     print(f"=== {args.folds} 折交叉验证（全量 {len(y)} 条）===")
@@ -360,8 +469,12 @@ def main():
     # ---------- 输出 ----------
     payload = {
         "subject": args.subject,
+        "task": "baseline_lda_classification",
+        "eeg_task": args.task,
+        "top_k": args.top_k,
         "classes": class_names,
         "n_samples": int(len(y)),
+        "n_runs": len(dataset.run_ids),
         "n_features": result["n_features"],
         "bands": {k: list(v) for k, v in BANDS.items()},
         "band_mode": args.bands_mode,
@@ -384,6 +497,61 @@ def main():
     with metrics_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
     print(f"[Saved] {metrics_path}")
+
+    val = holdout.get("val", {})
+    summary = {
+        "subject": args.subject,
+        "eeg_task": args.task,
+        "top_k": args.top_k,
+        "band_mode": args.bands_mode,
+        "model": args.model,
+        "n_features": result["n_features"],
+        "n_samples": int(len(y)),
+        "n_runs": len(dataset.run_ids),
+        "chance_accuracy": float(1 / num_classes),
+        "val_accuracy": val.get("accuracy"),
+        "val_macro_f1": val.get("macro_f1"),
+        "val_weighted_f1": val.get("weighted_f1"),
+        "test_accuracy": holdout["test"]["accuracy"],
+        "test_macro_f1": holdout["test"]["macro_f1"],
+        "test_weighted_f1": holdout["test"]["weighted_f1"],
+        "cv_accuracy_mean": float(accs.mean()),
+        "cv_accuracy_std": float(accs.std()),
+        "cv_macro_f1_mean": float(f1s.mean()),
+        "cv_macro_f1_std": float(f1s.std()),
+        "permutation_n": permutation["n"] if permutation else None,
+        "permutation_null_mean": permutation["null_mean"] if permutation else None,
+        "permutation_null_p95": permutation["null_p95"] if permutation else None,
+        "permutation_z": permutation["z_score"] if permutation else None,
+        "permutation_p": permutation["p_value"] if permutation else None,
+    }
+    summary_path = out_dir / f"summary_{args.subject}.csv"
+    write_rows(summary_path, [summary], SUMMARY_FIELDS)
+    print(f"[Saved] {summary_path}")
+    return [summary]
+
+
+def main():
+    args = parse_args()
+    subjects = list(args.subject)
+    base_folds = args.folds
+    run_name = args.run_name or f"baseline_{datetime.now():%Y%m%d_%H%M%S}"
+    all_rows: list[dict] = []
+
+    for subject in subjects:
+        args.subject = subject
+        args.folds = base_folds  # 上一个被试可能因样本太少降过折数，重置
+        out_dir = args.out_dir / run_name
+        if len(subjects) > 1:
+            out_dir = out_dir / subject
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"\n===== 被试 {subject} =====")
+        all_rows.extend(run_subject(args, out_dir))
+
+    if len(subjects) > 1 and all_rows:
+        summary_path = args.out_dir / run_name / "summary_all.csv"
+        write_rows(summary_path, all_rows, SUMMARY_FIELDS)
+        print(f"[Saved] {summary_path}")
 
 
 if __name__ == "__main__":
