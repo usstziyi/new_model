@@ -73,6 +73,8 @@ PAIRED_FIELDS = [
 ]
 SUMMARY_FIELDS = [
     "subject",
+    "eeg_task",
+    "top_k",
     "mode",
     "n_groups",
     "reference_cv_folds",
@@ -489,6 +491,8 @@ def print_fold_table(mode_label: str, rows: list[dict]) -> None:
 
 def summarize_mode(
     subject: str,
+    eeg_task: str,
+    top_k: int,
     mode_label: str,
     loo: dict,
     reference: dict,
@@ -505,6 +509,8 @@ def summarize_mode(
     perm = permutation or {}
     return {
         "subject": subject,
+        "eeg_task": eeg_task,
+        "top_k": top_k,
         "mode": mode_label,
         "n_groups": loo["n_groups"],
         "reference_cv_folds": reference_folds,
@@ -825,6 +831,8 @@ def run_subject(args, out_dir: Path) -> list[dict]:
         summary_rows.append(
             summarize_mode(
                 args.subject,
+                args.task,
+                args.top_k,
                 label,
                 loo,
                 reference,
