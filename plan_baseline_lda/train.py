@@ -15,6 +15,9 @@ run pkl 加载（见 ``dataset.py``），不经过 ``top10_imagine`` / ``top10_r
 3. **置换零分布**：全局打乱标签后重复 5 折，给出随机水平与经验 p 值；
 4. **频段扫描**（``--sweep-bands``）：all / 单频段 / 留一频段共 11 种配置，Welch 只算一次；扫描模式不做置换。
 
+注意：若同时报告多个被试或多个频段配置的 p 值，需要在论文中说明多重比较校正方法
+（如 Bonferroni 或 FDR），不要直接把未校正 p 当作独立证据。
+
 特征与分类器见 ``model.py``：逐通道 5 个频段的 log 功率（默认相对功率），
 
 
@@ -67,6 +70,9 @@ SUMMARY_FIELDS = [
     "n_features",
     "n_samples",
     "n_runs",
+    "val_ratio",
+    "test_ratio",
+    "split_seed",
     "chance_accuracy",
     "val_accuracy",
     "val_macro_f1",
@@ -368,7 +374,7 @@ def sweep_configs(channels_per_band: int) -> list[tuple[str, np.ndarray]]:
 def print_sweep_table(rows: list[dict]) -> None:
     """打印频段扫描的汇总表。"""
     header = (
-        f"{'config':<12}{'n_feat':>7}{'val':>8}{'test':>8}"
+        f"{'config':<12}{'n_feat':>7}{'val':>8}{'test':>8}{'test_95CI':>17}"
         f"{'cv_acc':>9}{'std':>7}{'macroF1':>9}{'p':>8}"
     )
     print("\n=== 频段扫描汇总 ===")
@@ -377,14 +383,17 @@ def print_sweep_table(rows: list[dict]) -> None:
     for row in rows:
         p_value = f"{row['p_value']:.4f}" if row["p_value"] is not None else "-"
         val_text = f"{row['val_accuracy']:.4f}" if row["val_accuracy"] is not None else "-"
+        ci_text = f"[{row['test_accuracy_ci_low']:.3f},{row['test_accuracy_ci_high']:.3f}]"
         print(
             f"{row['config']:<12}{row['n_features']:>7}{val_text:>8}"
-            f"{row['test_accuracy']:>8.4f}{row['cv_accuracy_mean']:>9.4f}"
+            f"{row['test_accuracy']:>8.4f}{ci_text:>17}{row['cv_accuracy_mean']:>9.4f}"
             f"{row['cv_accuracy_std']:>7.4f}{row['cv_macro_f1_mean']:>9.4f}{p_value:>8}"
         )
 
 
-def run_sweep(feats, y, groups, class_names, train_idx, val_idx, test_idx, args, out_dir: Path) -> None:
+def run_sweep(
+    feats, y, groups, class_names, train_idx, val_idx, test_idx, args, out_dir: Path, n_runs: int
+) -> None:
     """逐个频段评估，并把汇总写入 ``sweep.json``（扫描模式不做置换）。"""
     rows = []
     for label, columns in sweep_configs(feats.shape[1] // len(BANDS)):
@@ -447,6 +456,7 @@ def run_sweep(feats, y, groups, class_names, train_idx, val_idx, test_idx, args,
         "top_k": args.top_k,
         "classes": class_names,
         "n_samples": int(len(y)),
+        "n_runs": n_runs,
         "bands": {k: list(v) for k, v in BANDS.items()},
         "band_mode": args.bands_mode,
         "model": args.model,
@@ -507,7 +517,10 @@ def run_subject(args, out_dir: Path) -> list[dict]:
     print(f"[Split] train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
     if args.sweep_bands:
-        run_sweep(feats, y, groups, class_names, train_idx, val_idx, test_idx, args, out_dir)
+        run_sweep(
+            feats, y, groups, class_names, train_idx, val_idx, test_idx, args, out_dir,
+            len(dataset.run_ids),
+        )
         return []
 
     model, result = evaluate(
@@ -615,6 +628,9 @@ def run_subject(args, out_dir: Path) -> list[dict]:
         "n_features": result["n_features"],
         "n_samples": int(len(y)),
         "n_runs": len(dataset.run_ids),
+        "val_ratio": args.val_ratio,
+        "test_ratio": args.test_ratio,
+        "split_seed": args.split_seed,
         "chance_accuracy": float(1 / num_classes),
         "val_accuracy": val.get("accuracy"),
         "val_macro_f1": val.get("macro_f1"),

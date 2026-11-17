@@ -16,6 +16,9 @@ train / test；``plan_run_identity`` 已证明 run 身份可以接近 100% 被�
 6. **频段扫描**（可选）：``all`` / 单频段 / 留一频段共 11 种特征子集；扫描模式
    不做置换，避免 11 × 45 × B 次拟合。
 
+注意：若同时报告多个被试或多个频段配置的 p 值，需要在论文中说明多重比较校正方法
+（如 Bonferroni 或 FDR）。
+
 输出：每个被试一份 ``metrics.json``，以及
 ``classification_report_{loro,lodo}_<subject>.csv``、``summary_<subject>.csv``、
 ``paired_{loro,lodo}_<subject>.csv``；``--leave-out both`` 时额外输出
@@ -72,6 +75,7 @@ SUMMARY_FIELDS = [
     "subject",
     "mode",
     "n_groups",
+    "reference_cv_folds",
     "n_samples",
     "n_features",
     "model",
@@ -495,6 +499,7 @@ def summarize_mode(
     model_name: str,
     band_mode: str,
     chance: float,
+    reference_folds: int,
 ) -> dict:
     """写 summary CSV 的一行（所有数值都在这里落盘，便于跨被试汇总）。"""
     perm = permutation or {}
@@ -502,6 +507,7 @@ def summarize_mode(
         "subject": subject,
         "mode": mode_label,
         "n_groups": loo["n_groups"],
+        "reference_cv_folds": reference_folds,
         "n_samples": n_samples,
         "n_features": n_features,
         "model": model_name,
@@ -639,6 +645,7 @@ def run_sweep(
             rows.append(row)
             print(
                 f"  {row['mode']}: loo={row['loo_accuracy']:.4f} "
+                f"95% CI [{row['loo_ci_low']:.3f},{row['loo_ci_high']:.3f}] "
                 f"macro_f1={row['loo_macro_f1']:.4f} ref_cv={row['reference_cv_accuracy']:.4f} "
                 f"paired_diff={row['paired_mean_diff']:+.4f}",
                 flush=True,
@@ -778,6 +785,11 @@ def run_subject(args, out_dir: Path) -> list[dict]:
                 f"p95={permutation['null_p95']:.4f} observed={permutation['observed']:.4f} "
                 f"z={permutation['z_score']:.1f} p={permutation['p_value']:.4f}"
             )
+        if mode == "day" and loo["n_groups"] <= 5:
+            print(
+                f"[{label}] 注意：只有 {loo['n_groups']} 个 day 簇，bootstrap CI 较粗；"
+                f"逐 day 结果见 paired_{label}_{args.subject}.csv"
+            )
 
         report = classification_report(
             y_true,
@@ -823,6 +835,7 @@ def run_subject(args, out_dir: Path) -> list[dict]:
                 args.model,
                 args.bands_mode,
                 float(1 / num_classes),
+                folds,
             )
         )
 
