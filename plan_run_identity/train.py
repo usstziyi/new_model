@@ -144,7 +144,7 @@ def parse_args():
     parser.add_argument("--channel-top-k", type=int, default=10, help="通道扫描确认阶段取效应量最高/最低的各 k 个")
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器：lda 收缩 LDA、logreg 逻辑回归或 svm RBF 核 SVM")
     parser.add_argument("--folds", type=int, default=5, help="交叉验证折数")
-    parser.add_argument("--permutations", type=int, default=200, help="置换检验次数，0 表示跳过")
+    parser.add_argument("--permutations", type=int, default=2000, help="置换检验次数，0 表示跳过")
     parser.add_argument("--val-ratio", type=float, default=0.1, help="验证集比例")
     parser.add_argument("--test-ratio", type=float, default=0.1, help="测试集比例")
     parser.add_argument("--split-seed", type=int, default=42, help="划分种子")
