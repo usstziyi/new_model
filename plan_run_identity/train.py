@@ -25,6 +25,7 @@
     uv run plan_run_identity/train.py --sweep-bands --run-name sweep_rel_lda
     uv run plan_run_identity/train.py --sweep-channels --run-name sweep_channels_lda
     uv run plan_run_identity/train.py --use-64-channels
+    uv run plan_run_identity/train.py --subject sub-01 sub-02
 """
 
 from __future__ import annotations
@@ -130,7 +131,7 @@ def run_class_confound(run_labels, orig_labels, run_names, orig_class_names, met
 
 def parse_args():
     parser = argparse.ArgumentParser(description="run 身份探针：log 频带功率 + 线性分类器。")
-    parser.add_argument("--subject", default="sub-01", help="被试编号")
+    parser.add_argument("--subject", nargs="+", default=["sub-01"], help="被试编号，可指定多个，如 --subject sub-01 sub-02")
     parser.add_argument("--task", default="imagine", choices=("imagine", "reading"), help="读取哪一组 CSV / run pkl")
     parser.add_argument("--top-k", type=int, default=10, help="保留样本数最多的前 k 个句类")
     parser.add_argument("--csv-root", type=Path, default=CSV_ROOT, help="试次表 CSV 目录")
@@ -499,9 +500,52 @@ def run_channel_sweep(feats, y, run_names, channel_names, confound, train_idx, v
     print(f"[Saved] {path}")
 
 
-def main():
-    args = parse_args()
+REPORT_FIELDS = ["subject", "label", "precision", "recall", "f1", "support"]
 
+
+def save_classification_csv(path: Path, subject: str, report: dict) -> None:
+    """把 ``classification_report(output_dict=True)`` 的逐 run 指标写成 CSV。"""
+    total_support = sum(
+        metrics["support"]
+        for label, metrics in report.items()
+        if isinstance(metrics, dict) and label not in ("macro avg", "weighted avg", "samples avg")
+    )
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=REPORT_FIELDS)
+        writer.writeheader()
+        for label, metrics in report.items():
+            if isinstance(metrics, dict):
+                row = {
+                    "subject": subject,
+                    "label": label,
+                    "precision": metrics["precision"],
+                    "recall": metrics["recall"],
+                    "f1": metrics["f1-score"],
+                    "support": metrics["support"],
+                }
+            elif label == "accuracy":  # output_dict 模式下 accuracy 是标量
+                row = {
+                    "subject": subject,
+                    "label": label,
+                    "precision": metrics,
+                    "recall": metrics,
+                    "f1": metrics,
+                    "support": total_support,
+                }
+            else:
+                continue
+            writer.writerow(row)
+
+
+def save_summary_csv(path: Path, row: dict) -> None:
+    """把单个被试的总体指标写成一行 CSV。"""
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+
+
+def run_subject(args, out_dir: Path) -> None:
     dataset = RunLabelEEGDataset(
         subject=args.subject,
         task=args.task,
@@ -550,10 +594,6 @@ def main():
     )
     print(f"[Split] train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
-    run_name = args.run_name or f"run_identity_{datetime.now():%Y%m%d_%H%M%S}"
-    out_dir = args.out_dir / run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     if args.sweep_bands and args.sweep_channels:
         raise SystemExit("--sweep-bands 与 --sweep-channels 只能选一个")
 
@@ -583,16 +623,29 @@ def main():
             f"weighted_f1={m['weighted_f1']:.4f} (n={m['n_samples']})"
         )
     print(f"\n测试集分类报告（{args.model}，标签=run）:")
+    pred_test = model.predict(feats[test_idx])
+    report_dict = classification_report(
+        y[test_idx],
+        pred_test,
+        labels=list(range(num_runs)),
+        target_names=run_names,
+        digits=3,
+        zero_division=0,
+        output_dict=True,
+    )
     print(
         classification_report(
             y[test_idx],
-            model.predict(feats[test_idx]),
+            pred_test,
             labels=list(range(num_runs)),
             target_names=run_names,
             digits=3,
             zero_division=0,
         )
     )
+    report_path = out_dir / f"classification_report_{args.subject}.csv"
+    save_classification_csv(report_path, args.subject, report_dict)
+    print(f"[Saved] {report_path}")
 
     # ---------- 2. 交叉验证 ----------
     print(f"=== {args.folds} 折交叉验证（全量 {len(y)} 条）===")
@@ -649,6 +702,55 @@ def main():
     with metrics_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
     print(f"[Saved] {metrics_path}")
+
+    summary = {
+        "subject": args.subject,
+        "eeg_task": args.task,
+        "top_k": args.top_k,
+        "band_mode": args.bands_mode,
+        "model": args.model,
+        "n_features": result["n_features"],
+        "n_samples": int(len(y)),
+        "n_runs": num_runs,
+        "chance_accuracy": float(1 / num_runs),
+        "val_accuracy": holdout["val"]["accuracy"],
+        "val_macro_f1": holdout["val"]["macro_f1"],
+        "val_weighted_f1": holdout["val"]["weighted_f1"],
+        "test_accuracy": holdout["test"]["accuracy"],
+        "test_macro_f1": holdout["test"]["macro_f1"],
+        "test_weighted_f1": holdout["test"]["weighted_f1"],
+        "cv_accuracy_mean": float(accs.mean()),
+        "cv_accuracy_std": float(accs.std()),
+        "cv_macro_f1_mean": float(f1s.mean()),
+        "cv_macro_f1_std": float(f1s.std()),
+        "permutation_n": permutation["n"] if permutation else None,
+        "permutation_null_mean": permutation["null_mean"] if permutation else None,
+        "permutation_null_p95": permutation["null_p95"] if permutation else None,
+        "permutation_z": permutation["z_score"] if permutation else None,
+        "permutation_p": permutation["p_value"] if permutation else None,
+        "run_majority_baseline_accuracy": confound["majority_baseline_accuracy"],
+        "run_mean_majority_share": confound["mean_majority_share"],
+    }
+    summary_path = out_dir / f"summary_{args.subject}.csv"
+    save_summary_csv(summary_path, summary)
+    print(f"[Saved] {summary_path}")
+
+
+def main():
+    args = parse_args()
+    subjects = list(args.subject)
+    base_folds = args.folds
+    run_name = args.run_name or f"run_identity_{datetime.now():%Y%m%d_%H%M%S}"
+
+    for subject in subjects:
+        args.subject = subject
+        args.folds = base_folds  # 上一个被试可能因样本太少降过折数，重置
+        out_dir = args.out_dir / run_name
+        if len(subjects) > 1:
+            out_dir = out_dir / subject
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"\n===== 被试 {subject} =====")
+        run_subject(args, out_dir)
 
 
 if __name__ == "__main__":
