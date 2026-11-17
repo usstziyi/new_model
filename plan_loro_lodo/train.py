@@ -10,7 +10,8 @@ train / test；``plan_run_identity`` 已证明 run 身份可以接近 100% 被�
 2. **leave-one-day-out（LODO）**：每次留出整整一个采集日，进一步排除日间漂移；
 3. **随机 5 折参考**：与 ``plan_baseline_lda`` 的 CV 口径一致，并保留每折 OOF
    预测，用于**逐组配对比较**（参考准确率 − 留一准确率）；
-4. **多数类基线 / chance**：不依赖 EEG 的下限；
+4. **多数类基线 / chance**：不依赖 EEG 的下限；留一池化准确率附组级 bootstrap
+   95% CI；
 5. **置换零分布**（可选，默认 200 次）：全局打乱句类标签后重跑留一，给出 p 值；
 6. **频段扫描**（可选）：``all`` / 单频段 / 留一频段共 11 种特征子集；扫描模式
    不做置换，避免 11 × 45 × B 次拟合。
@@ -77,6 +78,8 @@ SUMMARY_FIELDS = [
     "band_mode",
     "chance",
     "pooled_accuracy",
+    "pooled_ci_low",
+    "pooled_ci_high",
     "pooled_macro_f1",
     "pooled_weighted_f1",
     "fold_mean_accuracy",
@@ -109,6 +112,8 @@ SWEEP_FIELDS = [
     "mode",
     "n_features",
     "loo_accuracy",
+    "loo_ci_low",
+    "loo_ci_high",
     "loo_macro_f1",
     "fold_mean_accuracy",
     "fold_std_accuracy",
@@ -117,6 +122,23 @@ SWEEP_FIELDS = [
     "majority_baseline_accuracy",
     "chance",
 ]
+
+
+def combine_csvs(paths: list[Path], out_path: Path) -> None:
+    """把多个同结构 CSV 拼成一个（用于跨被试汇总）。"""
+    rows: list[dict] = []
+    fieldnames: list[str] | None = None
+    for path in paths:
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = fieldnames or reader.fieldnames
+            rows.extend(reader)
+    if not rows:
+        return
+    with out_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def write_rows(path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
@@ -165,6 +187,28 @@ def save_classification_csv(path: Path, subject: str, mode_label: str, report: d
     write_rows(path, rows, REPORT_FIELDS)
 
 
+def bootstrap_accuracy_ci(
+    y_true,
+    y_pred,
+    groups,
+    seed: int,
+    n_boot: int = 5000,
+) -> tuple[float, float]:
+    """按组（run / day）重采样的准确率 95% CI（cluster bootstrap）。"""
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    groups = np.asarray(groups)
+    unique = np.unique(groups)
+    index_by_group = [np.flatnonzero(groups == group) for group in unique]
+    rng = np.random.default_rng(seed)
+    accs = np.empty(n_boot)
+    for i in range(n_boot):
+        pick = rng.integers(0, len(unique), size=len(unique))
+        index = np.concatenate([index_by_group[j] for j in pick])
+        accs[i] = np.mean(y_true[index] == y_pred[index])
+    return float(np.percentile(accs, 2.5)), float(np.percentile(accs, 97.5))
+
+
 def leave_one_group_out(
     feats: np.ndarray,
     y: np.ndarray,
@@ -172,6 +216,7 @@ def leave_one_group_out(
     group_names: list[str],
     class_names: list[str],
     model_name: str,
+    seed: int,
 ):
     """逐组留出，返回指标、池化预测与逐组准确率。"""
     splitter = LeaveOneGroupOut()
@@ -179,6 +224,7 @@ def leave_one_group_out(
     fold_rows = []
     y_true_parts: list[np.ndarray] = []
     y_pred_parts: list[np.ndarray] = []
+    group_parts: list[np.ndarray] = []
 
     for train_idx, test_idx in splitter.split(feats, y, groups):
         held_out = int(groups[test_idx][0])
@@ -208,9 +254,12 @@ def leave_one_group_out(
         )
         y_true_parts.append(y[test_idx])
         y_pred_parts.append(pred)
+        group_parts.append(groups[test_idx])
 
     y_true = np.concatenate(y_true_parts)
     y_pred = np.concatenate(y_pred_parts)
+    pooled_groups = np.concatenate(group_parts)
+    ci_low, ci_high = bootstrap_accuracy_ci(y_true, y_pred, pooled_groups, seed)
     accs = np.asarray([row["accuracy"] for row in fold_rows])
     f1s = np.asarray([row["macro_f1"] for row in fold_rows])
     majority_correct = sum(
@@ -238,6 +287,7 @@ def leave_one_group_out(
         "fold_mean_macro_f1": float(f1s.mean()),
         "fold_std_macro_f1": float(f1s.std()),
         "majority_baseline_accuracy_pooled": float(majority_correct / len(y_true)),
+        "pooled_accuracy_ci": [ci_low, ci_high],
         "per_group_accuracy": {row["group_id"]: row["accuracy"] for row in fold_rows},
         "folds": fold_rows,
     }
@@ -358,7 +408,7 @@ def evaluate_mode(
 ):
     """一个分组模式（run / day）的完整评估。"""
     loo, y_true, y_pred = leave_one_group_out(
-        feats, y, groups, group_names, class_names, model_name
+        feats, y, groups, group_names, class_names, model_name, seed
     )
     reference = random_cv_reference(feats, y, groups, model_name, folds, seed)
     paired = paired_comparison(
@@ -458,6 +508,8 @@ def summarize_mode(
         "band_mode": band_mode,
         "chance": chance,
         "pooled_accuracy": loo["pooled"]["accuracy"],
+        "pooled_ci_low": loo["pooled_accuracy_ci"][0],
+        "pooled_ci_high": loo["pooled_accuracy_ci"][1],
         "pooled_macro_f1": loo["pooled"]["macro_f1"],
         "pooled_weighted_f1": loo["pooled"]["weighted_f1"],
         "fold_mean_accuracy": loo["fold_mean_accuracy"],
@@ -560,7 +612,7 @@ def run_sweep(
         for mode in selected_modes:
             spec = modes[mode]
             loo, _, _ = leave_one_group_out(
-                feats[:, columns], y, spec["groups"], spec["names"], class_names, args.model
+                feats[:, columns], y, spec["groups"], spec["names"], class_names, args.model, args.seed
             )
             reference = random_cv_reference(
                 feats[:, columns], y, spec["groups"], args.model, folds, args.seed
@@ -574,6 +626,8 @@ def run_sweep(
                 "mode": MODE_LABELS[mode],
                 "n_features": int(columns.size),
                 "loo_accuracy": loo["pooled"]["accuracy"],
+                "loo_ci_low": loo["pooled_accuracy_ci"][0],
+                "loo_ci_high": loo["pooled_accuracy_ci"][1],
                 "loo_macro_f1": loo["pooled"]["macro_f1"],
                 "fold_mean_accuracy": loo["fold_mean_accuracy"],
                 "fold_std_accuracy": loo["fold_std_accuracy"],
@@ -694,7 +748,9 @@ def run_subject(args, out_dir: Path) -> list[dict]:
         print_fold_table(label, loo["folds"])
         pooled = loo["pooled"]
         print(
-            f"\n[{label}] 池化 acc={pooled['accuracy']:.4f} macro_f1={pooled['macro_f1']:.4f} "
+            f"\n[{label}] 池化 acc={pooled['accuracy']:.4f} "
+            f"95% CI [{loo['pooled_accuracy_ci'][0]:.4f}, {loo['pooled_accuracy_ci'][1]:.4f}] "
+            f"macro_f1={pooled['macro_f1']:.4f} "
             f"weighted_f1={pooled['weighted_f1']:.4f} (n={pooled['n_samples']})"
         )
         print(
@@ -872,10 +928,18 @@ def main():
         print(f"\n===== 被试 {subject} =====")
         all_rows.extend(run_subject(args, out_dir))
 
-    if len(subjects) > 1 and all_rows:
-        summary_path = args.out_dir / run_name / "summary_all.csv"
-        write_rows(summary_path, all_rows, SUMMARY_FIELDS)
-        print(f"[Saved] {summary_path}")
+    if len(subjects) > 1:
+        run_root = args.out_dir / run_name
+        if args.sweep_bands:
+            paths = sorted(run_root.glob("*/sweep_*.csv"))
+            if paths:
+                sweep_path = run_root / "sweep_all.csv"
+                combine_csvs(paths, sweep_path)
+                print(f"[Saved] {sweep_path}")
+        elif all_rows:
+            summary_path = run_root / "summary_all.csv"
+            write_rows(summary_path, all_rows, SUMMARY_FIELDS)
+            print(f"[Saved] {summary_path}")
 
 
 if __name__ == "__main__":

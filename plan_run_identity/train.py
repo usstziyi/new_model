@@ -7,8 +7,8 @@
 ``datasets/preprocessed/<subject>_<task>.csv`` 选 top-k 句类并从原始 run pkl
 加载，不经过 ``top10_imagine`` 中间产物：
 
-1. **同划分 holdout**：8:2 分层随机划分（默认不设 val），报 test 的准确率与 macro-F1；
-2. **5 折交叉验证**：全量 2459 条上的稳定估计；
+1. **同划分 holdout**：8:2 分层随机划分（默认不设 val），报 test 的准确率、macro-F1 与 run 级 bootstrap 95% CI；
+2. **5 折交叉验证**：全量 2459 条上的稳定估计（附 bootstrap 95% CI）；
 3. **置换零分布**：全局打乱 run 标签后重复 5 折，给出随机水平和经验 p 值；
 4. **run × 句类混淆诊断**：统计每个 run 里句类的最多数占比，以及“只用 run
    身份预测原句类”的多数类基线准确率，用来判断 run 是否同时携带句类信息。
@@ -48,18 +48,72 @@ DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "run_identity"
 MONTAGE_CSV = PROJECT_ROOT / "scripts/montage.csv"
 BAD_CHANNELS_CSV = PROJECT_ROOT / "outputs" / "bad_channels" / "bad_channels.csv"
 
+SWEEP_FIELDS = [
+    "subject",
+    "config",
+    "n_features",
+    "val_accuracy",
+    "test_accuracy",
+    "test_accuracy_ci_low",
+    "test_accuracy_ci_high",
+    "cv_accuracy_mean",
+    "cv_accuracy_std",
+    "cv_accuracy_ci_low",
+    "cv_accuracy_ci_high",
+    "cv_macro_f1_mean",
+    "p_value",
+]
 
-def cross_validate(X, y, model_name: str, folds: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    """返回每折的 (accuracy, macro_f1)。"""
+
+def bootstrap_accuracy_ci(
+    y_true,
+    y_pred,
+    groups,
+    seed: int,
+    n_boot: int = 5000,
+) -> tuple[float, float]:
+    """按 run 重采样的准确率 95% CI（cluster bootstrap）。
+
+    这里每个 run 就是一个类别，因此按 run 重采样等价于保留 run 内相关性的
+    类别级 bootstrap，比按试次独立重采样更保守。
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    groups = np.asarray(groups)
+    unique = np.unique(groups)
+    index_by_group = [np.flatnonzero(groups == group) for group in unique]
+    rng = np.random.default_rng(seed)
+    accs = np.empty(n_boot)
+    for i in range(n_boot):
+        pick = rng.integers(0, len(unique), size=len(unique))
+        index = np.concatenate([index_by_group[j] for j in pick])
+        accs[i] = np.mean(y_true[index] == y_pred[index])
+    return float(np.percentile(accs, 2.5)), float(np.percentile(accs, 97.5))
+
+
+def cross_validate(
+    X,
+    y,
+    model_name: str,
+    folds: int,
+    seed: int,
+    return_oof: bool = False,
+):
+    """返回每折的 (accuracy, macro_f1)；``return_oof=True`` 时额外返回 OOF 预测。"""
     accs, f1s = [], []
+    oof = np.empty(len(y), dtype=np.asarray(y).dtype) if return_oof else None
     # 分层 K 折：每折的 run 比例与全集一致
     splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
     for train_idx, test_idx in splitter.split(X, y):
         model = make_model(model_name)
         model.fit(X[train_idx], y[train_idx])
         pred = model.predict(X[test_idx])
+        if oof is not None:
+            oof[test_idx] = pred
         accs.append(accuracy_score(y[test_idx], pred))
         f1s.append(f1_score(y[test_idx], pred, average="macro", zero_division=0))
+    if oof is not None:
+        return np.asarray(accs), np.asarray(f1s), oof
     return np.asarray(accs), np.asarray(f1s)
 
 
@@ -74,15 +128,18 @@ def permutation_null(X, y, model_name: str, folds: int, seed: int, n_perm: int) 
     return null
 
 
-def holdout_report(X, y, train_idx, eval_sets, run_names, model_name):
-    """在固定划分上训练一次，返回各评估集的指标。"""
+def holdout_report(X, y, train_idx, eval_sets, run_names, model_name, seed):
+    """在固定划分上训练一次，返回各评估集的指标（含 run 级 bootstrap CI）。"""
     model = make_model(model_name)
     model.fit(X[train_idx], y[train_idx])
     out = {}
     for name, idx in eval_sets.items():
         pred = model.predict(X[idx])
+        ci_low, ci_high = bootstrap_accuracy_ci(y[idx], pred, y[idx], seed)
         out[name] = {
             "accuracy": float(accuracy_score(y[idx], pred)),
+            "accuracy_ci_low": ci_low,
+            "accuracy_ci_high": ci_high,
             "macro_f1": float(f1_score(y[idx], pred, average="macro", zero_division=0)),
             "weighted_f1": float(f1_score(y[idx], pred, average="weighted", zero_division=0)),
             "n_samples": int(len(idx)),
@@ -139,7 +196,7 @@ def parse_args():
     parser.add_argument("--target-sfreq", type=float, default=500.0, help="降采样目标采样率")
     parser.add_argument("--use-64-channels", action="store_true", help="只用 64 通道")
     parser.add_argument("--bands-mode", default="rel", choices=("rel", "abs"), help="相对/绝对频带功率")
-    parser.add_argument("--sweep-bands", action="store_true", help="逐个频段扫描（all / 单频段 / 留一频段），Welch 只算一次")
+    parser.add_argument("--sweep-bands", action="store_true", help="逐个频段扫描（all / 单频段 / 留一频段），Welch 只算一次；扫描模式不做置换")
     parser.add_argument("--sweep-channels", action="store_true", help="逐通道扫描：run 效应量排序 + 首尾通道的 only/drop CV")
     parser.add_argument("--channel-top-k", type=int, default=10, help="通道扫描确认阶段取效应量最高/最低的各 k 个")
     parser.add_argument("--model", default="lda", choices=("lda", "logreg", "svm"), help="分类器：lda 收缩 LDA、logreg 逻辑回归或 svm RBF 核 SVM")
@@ -240,10 +297,11 @@ def evaluate(
     if len(val_idx) > 0:
         eval_sets["val"] = val_idx
     model, holdout = holdout_report(
-        feats, y, train_idx, eval_sets, run_names, model_name
+        feats, y, train_idx, eval_sets, run_names, model_name, seed
     )
     # 2. 全量数据 5 折交叉验证，其均值作为置换检验的观测值
-    accs, f1s = cross_validate(feats, y, model_name, folds, seed)
+    accs, f1s, oof = cross_validate(feats, y, model_name, folds, seed, return_oof=True)
+    cv_ci_low, cv_ci_high = bootstrap_accuracy_ci(y, oof, y, seed)
     permutation = None
     if n_perm > 0:
         # 3. 置换零分布：打乱标签后重跑同一条管线，p 用 +1 平滑避免为 0（下限 1/(n+1)）
@@ -262,7 +320,14 @@ def evaluate(
     return model, {
         "n_features": int(feats.shape[1]),
         "holdout": holdout,
-        "cv": {model_name: {"accuracy": accs.tolist(), "macro_f1": f1s.tolist()}},
+        "cv": {
+            model_name: {
+                "accuracy": accs.tolist(),
+                "macro_f1": f1s.tolist(),
+                "accuracy_ci_low": cv_ci_low,
+                "accuracy_ci_high": cv_ci_high,
+            }
+        },
         "permutation": permutation,
     }
 
@@ -339,32 +404,45 @@ def run_sweep(feats, y, run_names, orig_class_names, confound, train_idx, val_id
             args.model,
             args.folds,
             args.seed,
-            args.permutations,
+            0,  # 扫描模式强制关闭置换，避免 11 × B 倍成本
         )
         holdout = result["holdout"]
         accs = np.asarray(result["cv"][args.model]["accuracy"])
         f1s = np.asarray(result["cv"][args.model]["macro_f1"])
+        cv_stats = result["cv"][args.model]
         permutation = result["permutation"]
         rows.append(
             {
+                "subject": args.subject,
                 "config": label,
                 "n_features": result["n_features"],
                 "val_accuracy": holdout.get("val", {}).get("accuracy"),
                 "test_accuracy": holdout["test"]["accuracy"],
+                "test_accuracy_ci_low": holdout["test"]["accuracy_ci_low"],
+                "test_accuracy_ci_high": holdout["test"]["accuracy_ci_high"],
                 "cv_accuracy_mean": float(accs.mean()),
                 "cv_accuracy_std": float(accs.std()),
+                "cv_accuracy_ci_low": cv_stats["accuracy_ci_low"],
+                "cv_accuracy_ci_high": cv_stats["accuracy_ci_high"],
                 "cv_macro_f1_mean": float(f1s.mean()),
                 "p_value": permutation["p_value"] if permutation else None,
                 "detail": result,
             }
         )
+        val_text = (
+            f"{rows[-1]['val_accuracy']:.4f}" if rows[-1]["val_accuracy"] is not None else "-"
+        )
         print(
-            f"  val={rows[-1]['val_accuracy']:.4f} test={rows[-1]['test_accuracy']:.4f} "
+            f"  val={val_text} test={rows[-1]['test_accuracy']:.4f} "
             f"cv={rows[-1]['cv_accuracy_mean']:.4f}±{rows[-1]['cv_accuracy_std']:.4f}",
             flush=True,
         )
 
     print_sweep_table(rows)
+    with (out_dir / f"sweep_{args.subject}.csv").open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=SWEEP_FIELDS)
+        writer.writeheader()
+        writer.writerows([{key: row[key] for key in SWEEP_FIELDS} for row in rows])
     payload = sweep_payload(
         args, run_names, orig_class_names, confound, train_idx, val_idx, test_idx, rows
     )
@@ -541,6 +619,23 @@ def save_classification_csv(path: Path, subject: str, report: dict) -> None:
             writer.writerow(row)
 
 
+def combine_csvs(paths: list[Path], out_path: Path) -> None:
+    """把多个同结构 CSV 拼成一个（用于跨被试汇总）。"""
+    rows: list[dict] = []
+    fieldnames: list[str] | None = None
+    for path in paths:
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = fieldnames or reader.fieldnames
+            rows.extend(reader)
+    if not rows:
+        return
+    with out_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def save_summary_csv(path: Path, row: dict) -> None:
     """把单个被试的总体指标写成一行 CSV。"""
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -625,8 +720,10 @@ def run_subject(args, out_dir: Path) -> None:
             continue
         m = holdout[name]
         print(
-            f"  [{args.model}] {name:<4} acc={m['accuracy']:.4f} macro_f1={m['macro_f1']:.4f} "
-            f"weighted_f1={m['weighted_f1']:.4f} (n={m['n_samples']})"
+            f"  [{args.model}] {name:<4} acc={m['accuracy']:.4f} "
+            f"95% CI [{m['accuracy_ci_low']:.4f}, {m['accuracy_ci_high']:.4f}] "
+            f"macro_f1={m['macro_f1']:.4f} weighted_f1={m['weighted_f1']:.4f} "
+            f"(n={m['n_samples']})"
         )
     print(f"\n测试集分类报告（{args.model}，标签=run）:")
     pred_test = model.predict(feats[test_idx])
@@ -657,10 +754,12 @@ def run_subject(args, out_dir: Path) -> None:
     print(f"=== {args.folds} 折交叉验证（全量 {len(y)} 条）===")
     accs = np.asarray(result["cv"][args.model]["accuracy"])
     f1s = np.asarray(result["cv"][args.model]["macro_f1"])
+    cv_stats = result["cv"][args.model]
     for i, (acc, f1) in enumerate(zip(accs, f1s), start=1):
         print(f"  fold {i}  acc={acc:.4f}  macro_f1={f1:.4f}")
     print(
         f"  {args.model:<7} acc={accs.mean():.4f} ± {accs.std():.4f}   "
+        f"95% CI [{cv_stats['accuracy_ci_low']:.4f}, {cv_stats['accuracy_ci_high']:.4f}]   "
         f"macro_f1={f1s.mean():.4f} ± {f1s.std():.4f}"
     )
     print(f"  {'chance':<7} acc={1 / num_runs:.4f}")
@@ -725,8 +824,12 @@ def run_subject(args, out_dir: Path) -> None:
         "test_accuracy": holdout["test"]["accuracy"],
         "test_macro_f1": holdout["test"]["macro_f1"],
         "test_weighted_f1": holdout["test"]["weighted_f1"],
+        "test_accuracy_ci_low": holdout["test"]["accuracy_ci_low"],
+        "test_accuracy_ci_high": holdout["test"]["accuracy_ci_high"],
         "cv_accuracy_mean": float(accs.mean()),
         "cv_accuracy_std": float(accs.std()),
+        "cv_accuracy_ci_low": cv_stats["accuracy_ci_low"],
+        "cv_accuracy_ci_high": cv_stats["accuracy_ci_high"],
         "cv_macro_f1_mean": float(f1s.mean()),
         "cv_macro_f1_std": float(f1s.std()),
         "permutation_n": permutation["n"] if permutation else None,
@@ -757,6 +860,24 @@ def main():
         out_dir.mkdir(parents=True, exist_ok=True)
         print(f"\n===== 被试 {subject} =====")
         run_subject(args, out_dir)
+
+    run_root = args.out_dir / run_name
+    if len(subjects) > 1:
+        if args.sweep_bands:
+            paths = sorted(run_root.glob("*/sweep_*.csv"))
+            if paths:
+                sweep_path = run_root / "sweep_all.csv"
+                combine_csvs(paths, sweep_path)
+                print(f"[Saved] {sweep_path}")
+        else:
+            paths = [
+                p for p in sorted(run_root.glob("*/summary_*.csv"))
+                if p.name != "summary_all.csv"
+            ]
+            if paths:
+                summary_path = run_root / "summary_all.csv"
+                combine_csvs(paths, summary_path)
+                print(f"[Saved] {summary_path}")
 
 
 if __name__ == "__main__":
