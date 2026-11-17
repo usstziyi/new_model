@@ -1,7 +1,0 @@
-[sub-01] fold 0: bp|none|pca_lr val=0.179 test=0.133 matched=0.139
-[sub-01] fold 1: bp|none|pca_lr val=0.143 test=0.111 matched=0.123
-[sub-01] fold 2: bpwin+hjorth|none|pca_lr val=0.133 test=0.139 matched=0.138
-[sub-01] fold 3: bpwin+hjorth|none|pca_lr val=0.127 test=0.091 matched=0.092
-[sub-01] fold 4: bpwin+hjorth|none|pca_lr val=0.113 test=0.127 matched=0.137
-[sub-01] acc=0.120 CI=[0.100,0.141] matched=0.126
-[sub-02] fold 0: bpwin+hjorth|none|pca_lr val=0.119 test=0.136 matched=0.143

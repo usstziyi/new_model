@@ -1,8 +1,11 @@
-"""线性基线的特征前端与分类器（`plan_loro_classification` 原样复用）。
+"""线性基线的特征前端与分类器（与 ``plan_run_identity`` 及原 LORO 实验一致）。
 
 - ``extract_features``：逐通道 Welch 频带功率（相对 / 绝对），得到
   ``(N, 通道数 × 频段数)`` 的 log 功率特征；
 - ``make_model``：在标准化特征上拟合收缩 LDA（主基线）或逻辑回归 / RBF SVM。
+
+这里刻意保持与既有实验逐行一致，确保 LORO / LODO 的结论可以和
+run 身份探针、随机划分基线直接比较。
 """
 
 from __future__ import annotations

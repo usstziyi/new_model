@@ -1,4 +1,8 @@
-"""LORO 句类数据集：直接由试次表 CSV + 原始 run pkl 构造。
+"""LORO / LODO 句类数据集：直接由试次表 CSV + 原始 run pkl 构造。
+
+与原 LORO 实验（``plan_loro_classification``，已删除）的 dataset 同源，差别只在分组：
+这里同时暴露 ``run_groups``（leave-one-run-out）与 ``day_groups``（leave-one-day-out），
+训练入口可以复用同一份数据和特征，只切换分组向量。
 
 数据来源（均相对项目根目录）::
 
@@ -8,9 +12,6 @@
         <subject>_task-<read|imagine>_run-<NNN>_eeg.pkl
         每个 pkl 是该 run 的试次列表，每项 {"text": str, "input_features": (1, 125, T)}
 
-与 ``plan_run_identity/dataset.py`` 同源，只是标签反过来：这里预测句类
-``type_number``，并把试次所在 ``meta["run"]`` 作为 leave-one-run-out 的 group。
-
 流程：
 
 1. 读取 CSV 全部行，按 ``type_number`` 出现次数取前 ``top_k`` 类；
@@ -19,8 +20,11 @@
 3. 按 run 分组，每个 run 的 pkl 只解包一次，用 ``(run, pos)`` 定位试次，
    取前 122 个 EEG 通道，拼成 ``(N, 122, T)`` 并常驻内存。
 
-标签构造：把 ``type_number`` 按升序重映射为连续的 ``0..C-1``；划分时用
-``groups``（原始 run 编号）做留一组交叉验证，不再提供随机 ``split_indices``。
+标签构造：把 ``type_number`` 按升序重映射为连续的 ``0..C-1``。分组有两套：
+
+- ``run_groups``：试次所在原始 run 编号，用于 LORO；
+- ``day_groups``：该 run 所属采集日，用于 LODO。每个 run 必须只属于一个 day，
+  否则直接报错（当前数据已验证不存在跨天 run）。
 
 通道：pkl 的 125 通道 = 122 EEG + ``VEO`` + ``HEO`` + ``Trigger``，本模块只取
 前 122 个，顺序以 ``scripts/channels_122.csv`` 为基准；``use_64_channels=True``
@@ -28,10 +32,11 @@
 
 用法::
 
-    from dataset import LoroClassEEGDataset
+    from dataset import LoroLodoEEGDataset
 
-    ds = LoroClassEEGDataset("sub-01")
-    groups = ds.groups  # 每个试次的原始 run 编号
+    ds = LoroLodoEEGDataset("sub-01")
+    ds.run_groups  # 每个试次的原始 run 编号
+    ds.day_groups  # 每个试次所属的采集日
 """
 
 from __future__ import annotations
@@ -121,8 +126,8 @@ def read_rows(csv_path: Path) -> list[dict]:
         return list(csv.DictReader(handle))
 
 
-class LoroClassEEGDataset(Dataset):
-    """由 CSV 选类并加载 EEG，标签为句类，``groups`` 为试次所在 run。
+class LoroLodoEEGDataset(Dataset):
+    """由 CSV 选类并加载 EEG，标签为句类，同时提供 run / day 两种分组。
 
     Args:
         subject: 被试编号，如 ``sub-01``。
@@ -213,11 +218,23 @@ class LoroClassEEGDataset(Dataset):
         )
         self.targets = torch.from_numpy(self.labels)
 
-        # ---------- 2. run group（leave-one-run-out 的依据） ----------
+        # ---------- 2. run / day 分组 ----------
         raw_runs = [int(row["run"]) for row in rows]
+        raw_days = [int(row["day"]) for row in rows]
         self.run_ids = sorted(set(raw_runs))
         self.run_names = [f"run_{run:02d}" for run in self.run_ids]
-        self.groups = np.asarray(raw_runs, dtype=np.int64)
+        self.run_groups = np.asarray(raw_runs, dtype=np.int64)
+
+        run_to_day: dict[int, int] = {}
+        for run, day in zip(raw_runs, raw_days):
+            if run_to_day.setdefault(run, day) != day:
+                raise ValueError(
+                    f"run-{run} 同时属于 day {run_to_day[run]} 和 day {day}，"
+                    "无法按天做 leave-one-day-out"
+                )
+        self.day_ids = sorted(set(raw_days))
+        self.day_names = [f"day_{day:02d}" for day in self.day_ids]
+        self.day_groups = np.asarray([run_to_day[run] for run in raw_runs], dtype=np.int64)
 
         # 仅用于诊断与逐折报表，不参与训练
         self.meta = [
@@ -308,7 +325,7 @@ class LoroClassEEGDataset(Dataset):
 
         print(
             f"[Dataset] {subject} {label} 共 {len(self.labels)} 条 / {len(self.class_ids)} 类 / "
-            f"{len(self.run_ids)} 个 run | "
+            f"{len(self.run_ids)} 个 run / {len(self.day_ids)} 个 day | "
             f"x {tuple(self.data.shape)} {self.data.dtype} | "
             f"channels={self.n_channels} | sfreq={SFREQ // self._decimate:g} Hz",
             flush=True,
@@ -328,20 +345,22 @@ def _display_width(text: str) -> int:
 
 
 def main() -> None:
-    """冒烟检查：加载全量数据，打印每个 run 的试次数与一个 batch。"""
+    """冒烟检查：加载全量数据，打印 run / day 分布与一个 batch。"""
     from torch.utils.data import DataLoader, Subset
 
-    dataset = LoroClassEEGDataset("sub-01")
+    dataset = LoroLodoEEGDataset("sub-01")
     print(
         "类别映射: "
         f"{dict(zip(range(len(dataset.class_ids)), dataset.class_ids))}"
     )
 
     rows = []
+    run_to_day: dict[int, int] = {}
+    for run, day in zip(dataset.run_groups, dataset.day_groups):
+        run_to_day.setdefault(int(run), int(day))
     for run in dataset.run_ids:
-        mask = dataset.groups == run
-        day = dataset.meta[int(np.flatnonzero(mask)[0])]["day"]
-        rows.append((f"day{day} run_{run:02d}", int(mask.sum())))
+        mask = dataset.run_groups == run
+        rows.append((f"day{run_to_day[run]} run_{run:02d}", int(mask.sum())))
 
     name_width = max(_display_width(row) for row, _ in rows + [("run", 0)])
     col_width = 8
@@ -357,6 +376,9 @@ def main() -> None:
         print(format_row(label=row, values=[count]))
     print(rule)
     print(format_row(label="汇总", values=[len(dataset)]))
+
+    day_counts = {day: int((dataset.day_groups == day).sum()) for day in dataset.day_ids}
+    print(f"day 试次数: {day_counts}")
 
     loader = DataLoader(Subset(dataset, np.arange(4)), batch_size=4, shuffle=False)
     x, y = next(iter(loader))
