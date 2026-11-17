@@ -232,11 +232,18 @@ def permutation_null(X, y, model_name: str, folds: int, seed: int, n_perm: int) 
     rng = np.random.default_rng(seed)
     # null 来自统计学的 null hypothesis（原假设或零假设）
     null = np.empty(n_perm)
+    step = 10  # 每 10 次置换打印一行进度
     for i in range(n_perm):
         # 置换操作：全局打乱标签
         shuffled = rng.permutation(y)
         accs, _ = cross_validate(X, shuffled, model_name, folds, seed)
         null[i] = accs.mean()
+        if (i + 1) % step == 0 or i == n_perm - 1:
+            print(
+                f"[置换] {i + 1}/{n_perm} ({(i + 1) / n_perm:.0%}) "
+                f"本次 acc={null[i]:.4f}",
+                flush=True,
+            )
 
     return null
 

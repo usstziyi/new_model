@@ -123,10 +123,17 @@ def permutation_null(X, y, model_name: str, folds: int, seed: int, n_perm: int) 
     """全局打乱 run 标签后的 CV 准确率零分布。"""
     rng = np.random.default_rng(seed)
     null = np.empty(n_perm)
+    step = 10  # 每 10 次置换打印一行进度
     for i in range(n_perm):
         shuffled = rng.permutation(y)  # 返回打乱后的新数据
         accs, _ = cross_validate(X, shuffled, model_name, folds, seed)
         null[i] = accs.mean()
+        if (i + 1) % step == 0 or i == n_perm - 1:
+            print(
+                f"[置换] {i + 1}/{n_perm} ({(i + 1) / n_perm:.0%}) "
+                f"本次 acc={null[i]:.4f}",
+                flush=True,
+            )
     return null
 
 

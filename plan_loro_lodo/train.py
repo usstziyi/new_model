@@ -383,12 +383,15 @@ def permutation_null(
     model_name: str,
     n_perm: int,
     seed: int,
+    mode_label: str = "",
 ) -> np.ndarray:
     """全局打乱句类标签后的留一池化准确率零分布。"""
     rng = np.random.default_rng(seed)
     splitter = LeaveOneGroupOut()
     splits = list(splitter.split(feats, y, groups))  # 只依赖 groups，可复用
     null = np.empty(n_perm)
+    step = 10  # 每 10 次置换打印一行进度
+    tag = f"[{mode_label}] " if mode_label else ""
     for i in range(n_perm):
         shuffled = rng.permutation(y)
         correct = 0
@@ -397,6 +400,12 @@ def permutation_null(
             model.fit(feats[train_idx], shuffled[train_idx])
             correct += int(np.sum(model.predict(feats[test_idx]) == shuffled[test_idx]))
         null[i] = correct / len(shuffled)
+        if (i + 1) % step == 0 or i == n_perm - 1:
+            print(
+                f"{tag}[置换] {i + 1}/{n_perm} ({(i + 1) / n_perm:.0%}) "
+                f"本次 acc={null[i]:.4f}",
+                flush=True,
+            )
     return null
 
 
@@ -411,6 +420,7 @@ def evaluate_mode(
     folds: int,
     seed: int,
     n_perm: int,
+    mode_label: str = "",
 ):
     """一个分组模式（run / day）的完整评估。"""
     loo, y_true, y_pred = leave_one_group_out(
@@ -423,7 +433,7 @@ def evaluate_mode(
 
     permutation = None
     if n_perm > 0:
-        null = permutation_null(feats, y, groups, model_name, n_perm, seed)
+        null = permutation_null(feats, y, groups, model_name, n_perm, seed, mode_label)
         observed = float(loo["pooled"]["accuracy"])
         permutation = {
             "n": n_perm,
@@ -757,6 +767,7 @@ def run_subject(args, out_dir: Path) -> list[dict]:
             folds,
             args.seed,
             args.permutations,
+            label,
         )
         print_fold_table(label, loo["folds"])
         pooled = loo["pooled"]
