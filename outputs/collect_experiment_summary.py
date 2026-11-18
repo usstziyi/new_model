@@ -16,6 +16,10 @@
 名字带 ``_smoke`` / ``_test`` 的临时目录会被跳过。
 输出默认写到 ``outputs/experiment_summary/``。
 
+``--include-sweep`` 时，sweep 行的 ``protocol`` 记为 ``8:2-sweep``
+（baseline / run_identity）或 ``loro_lodo-sweep``（loro_lodo），
+``evaluation`` 统一为 ``sweep``，具体模式记录在 ``mode`` 列。
+
 注意：若同时报告多个被试或多个频段配置的 p 值，需要在论文中说明多重比较校正方法
 （如 Bonferroni 或 FDR）。
 """
@@ -42,6 +46,7 @@ SMOKE_TOKENS = ("_smoke", "_test")
 LONG_FIELDS = [
     "experiment",
     "evaluation",
+    "mode",
     "protocol",
     "config",
     "subject",
@@ -62,6 +67,7 @@ LONG_FIELDS = [
     "macro_f1",
     "cv_accuracy_mean",
     "cv_accuracy_std",
+    "cv_macro_f1_mean",
     "cv_accuracy_ci_low",
     "cv_accuracy_ci_high",
     "permutation_n",
@@ -133,6 +139,53 @@ def _empty_like(index: pd.Index, value=np.nan) -> pd.Series:
     return pd.Series([value] * len(index), index=index)
 
 
+META_SOURCES = {
+    "eeg_task": ("eeg_task",),
+    "top_k": ("top_k",),
+    "band_mode": ("band_mode",),
+    "model": ("model",),
+    "n_samples": ("n_samples",),
+    "n_groups": ("n_runs", "n_groups"),
+}
+
+
+def _subject_meta(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """从被试级 summary 提取元数据，供没有记录这些列的 sweep CSV 回填。"""
+    rows = []
+    for raw in frames:
+        if raw.empty or "subject" not in raw.columns:
+            continue
+        row = {"subject": raw["subject"].iloc[0]}
+        for field, names in META_SOURCES.items():
+            for name in names:
+                if name in raw.columns:
+                    value = raw[name].iloc[0]
+                    if pd.notna(value):
+                        row[field] = value
+                        break
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).drop_duplicates("subject").set_index("subject")
+
+
+def _from_raw_or_meta(
+    raw: pd.DataFrame, meta: pd.DataFrame, field: str, *names: str
+) -> pd.Series:
+    """优先取 CSV 自身列，否则按被试从 summary 元数据回填。"""
+    for name in names or (field,):
+        if name in raw.columns:
+            return raw[name]
+    if not meta.empty and field in meta.columns:
+        return raw["subject"].map(meta[field])
+    return _empty_like(raw.index)
+
+
+def _sweep_protocol(experiment: str) -> str:
+    """sweep 与主实验同口径：baseline/run_identity 是 8:2 留出，loro_lodo 是跨被试。"""
+    return "loro_lodo-sweep" if experiment == "loro_lodo" else "8:2-sweep"
+
+
 def _harmonize_summary(raw: pd.DataFrame, experiment: str) -> pd.DataFrame:
     if "mode" in raw.columns:
         evaluation = raw["mode"]
@@ -145,6 +198,7 @@ def _harmonize_summary(raw: pd.DataFrame, experiment: str) -> pd.DataFrame:
         {
             "experiment": raw["experiment"],
             "evaluation": evaluation,
+            "mode": _pick(raw, "mode"),
             "protocol": _protocol(raw, experiment),
             "config": _empty_like(raw.index),
             "subject": raw.get("subject"),
@@ -163,8 +217,9 @@ def _harmonize_summary(raw: pd.DataFrame, experiment: str) -> pd.DataFrame:
             "accuracy_ci_low": _pick(raw, "test_accuracy_ci_low", "pooled_ci_low"),
             "accuracy_ci_high": _pick(raw, "test_accuracy_ci_high", "pooled_ci_high"),
             "macro_f1": _pick(raw, "test_macro_f1", "pooled_macro_f1"),
-            "cv_accuracy_mean": _pick(raw, "cv_accuracy_mean"),
-            "cv_accuracy_std": _pick(raw, "cv_accuracy_std"),
+            "cv_accuracy_mean": _pick(raw, "cv_accuracy_mean", "reference_cv_accuracy_mean"),
+            "cv_accuracy_std": _pick(raw, "cv_accuracy_std", "reference_cv_accuracy_std"),
+            "cv_macro_f1_mean": _pick(raw, "cv_macro_f1_mean", "reference_cv_macro_f1_mean"),
             "cv_accuracy_ci_low": _pick(raw, "cv_accuracy_ci_low"),
             "cv_accuracy_ci_high": _pick(raw, "cv_accuracy_ci_high"),
             "permutation_n": _pick(raw, "permutation_n"),
@@ -176,26 +231,24 @@ def _harmonize_summary(raw: pd.DataFrame, experiment: str) -> pd.DataFrame:
     )[LONG_FIELDS]
 
 
-def _harmonize_sweep(raw: pd.DataFrame, experiment: str) -> pd.DataFrame:
-    if "mode" in raw.columns:
-        evaluation = raw["mode"]
-    else:
-        evaluation = _empty_like(raw.index, "sweep")
-
+def _harmonize_sweep(
+    raw: pd.DataFrame, experiment: str, meta: pd.DataFrame
+) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "experiment": raw["experiment"],
-            "evaluation": evaluation,
-            "protocol": _empty_like(raw.index, "sweep"),
+            "evaluation": _empty_like(raw.index, "sweep"),
+            "mode": _pick(raw, "mode"),
+            "protocol": _empty_like(raw.index, _sweep_protocol(experiment)),
             "config": raw.get("config"),
             "subject": raw.get("subject"),
-            "eeg_task": raw.get("eeg_task"),
-            "top_k": raw.get("top_k"),
-            "band_mode": raw.get("band_mode"),
-            "model": raw.get("model"),
+            "eeg_task": _from_raw_or_meta(raw, meta, "eeg_task"),
+            "top_k": _from_raw_or_meta(raw, meta, "top_k"),
+            "band_mode": _from_raw_or_meta(raw, meta, "band_mode"),
+            "model": _from_raw_or_meta(raw, meta, "model"),
             "n_features": raw.get("n_features"),
-            "n_samples": raw.get("n_samples"),
-            "n_groups": _pick(raw, "n_groups"),
+            "n_samples": _from_raw_or_meta(raw, meta, "n_samples"),
+            "n_groups": _from_raw_or_meta(raw, meta, "n_groups", "n_runs", "n_groups"),
             "val_ratio": _empty_like(raw.index),
             "test_ratio": _empty_like(raw.index),
             "reference_cv_folds": _empty_like(raw.index),
@@ -206,10 +259,11 @@ def _harmonize_sweep(raw: pd.DataFrame, experiment: str) -> pd.DataFrame:
             "macro_f1": _pick(raw, "test_macro_f1", "loo_macro_f1"),
             "cv_accuracy_mean": _pick(raw, "cv_accuracy_mean", "reference_cv_accuracy"),
             "cv_accuracy_std": _pick(raw, "cv_accuracy_std"),
+            "cv_macro_f1_mean": _pick(raw, "cv_macro_f1_mean"),
             "cv_accuracy_ci_low": _pick(raw, "cv_accuracy_ci_low"),
             "cv_accuracy_ci_high": _pick(raw, "cv_accuracy_ci_high"),
             "permutation_n": _empty_like(raw.index),
-            "permutation_p": _pick(raw, "p_value"),
+            "permutation_p": _empty_like(raw.index),
             "paired_mean_diff": _pick(raw, "paired_mean_diff"),
             "paired_ci_low": _empty_like(raw.index),
             "paired_ci_high": _empty_like(raw.index),
@@ -221,15 +275,18 @@ def _load_run(run_dir: Path, experiment: str, include_sweep: bool) -> pd.DataFra
     summary_paths = _summary_files(run_dir)
     sweep_paths = _sweep_files(run_dir) if include_sweep else []
 
-    frames = []
+    summary_frames = []
     for path in summary_paths:
         raw = pd.read_csv(path, encoding="utf-8-sig")
         raw["experiment"] = experiment
-        frames.append(_harmonize_summary(raw, experiment))
+        summary_frames.append(raw)
+
+    meta = _subject_meta(summary_frames)
+    frames = [_harmonize_summary(raw, experiment) for raw in summary_frames]
     for path in sweep_paths:
         raw = pd.read_csv(path, encoding="utf-8-sig")
         raw["experiment"] = experiment
-        frames.append(_harmonize_sweep(raw, experiment))
+        frames.append(_harmonize_sweep(raw, experiment, meta))
 
     if not frames:
         print(f"[Skip] {experiment}: {run_dir} 下没有可汇总的 CSV")
@@ -242,7 +299,7 @@ def _aggregate(long: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     return (
         long.groupby(
-            ["experiment", "evaluation", "protocol", "config"], dropna=False
+            ["experiment", "evaluation", "protocol", "config", "mode"], dropna=False
         )
         .agg(
             n_subjects=("subject", "nunique"),
@@ -251,7 +308,9 @@ def _aggregate(long: pd.DataFrame) -> pd.DataFrame:
             macro_f1_mean=("macro_f1", "mean"),
             macro_f1_std=("macro_f1", "std"),
             cv_accuracy_mean=("cv_accuracy_mean", "mean"),
-            cv_accuracy_std=("cv_accuracy_std", "mean"),
+            cv_accuracy_between_subject_std=("cv_accuracy_mean", "std"),
+            cv_within_subject_std_mean=("cv_accuracy_std", "mean"),
+            cv_macro_f1_mean=("cv_macro_f1_mean", "mean"),
             paired_mean_diff=("paired_mean_diff", "mean"),
         )
         .reset_index()
@@ -259,19 +318,12 @@ def _aggregate(long: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="汇总 baseline / run_identity / loro_lodo 的逐被试 CSV（可选包含 sweep）。"
-    )
+    parser = argparse.ArgumentParser(description="汇总 baseline / run_identity / loro_lodo 的逐被试 CSV（可选包含 sweep）。")
     parser.add_argument("--baseline-run", type=Path, help="baseline_lda 运行目录；默认取最新")
     parser.add_argument("--run-identity-run", type=Path, help="run_identity 运行目录；默认取最新")
     parser.add_argument("--loro-lodo-run", type=Path, help="loro_lodo 运行目录；默认取最新")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出目录")
-    parser.add_argument(
-        "--include-sweep", action="store_true", help="同时汇总 sweep_<subject>.csv"
-    )
-    parser.add_argument(
-        "--protocol", help="只保留指定协议，如 8:2 / loro_lodo / sweep"
-    )
+    parser.add_argument("--include-sweep", action="store_true", help="同时汇总 sweep_<subject>.csv")
     args = parser.parse_args()
 
     run_dirs = {
@@ -297,10 +349,6 @@ def main() -> None:
         )
 
     long = pd.concat(frames, ignore_index=True)
-    if args.protocol:
-        long = long[long["protocol"] == args.protocol]
-        if long.empty:
-            raise SystemExit(f"协议过滤后没有数据：{args.protocol}")
 
     aggregate = _aggregate(long)
 
