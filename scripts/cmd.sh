@@ -7,8 +7,15 @@ uv run plan_loro_lodo/train.py --subject sub-01 --permutations 0 --run-name _smo
 # baseline：2000 次置换
 uv run plan_baseline_lda/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --permutations 2000 --run-name main_8_2
 
-# LORO + LODO：200 次置换（LORO 45 折，成本较高）
+# LORO + LODO：2000 次置换（LORO 45 折，成本较高）
 uv run plan_loro_lodo/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --leave-out both --permutations 2000 --run-name main_8_2
+
+# LORO/LODO 分被试续跑（sub-01 已完成；run-name 带被试子目录，避免 metrics.json 互相覆盖）
+uv run plan_loro_lodo/train.py --subject sub-01 --leave-out both --permutations 2000 --run-name main_8_2/sub-01
+uv run plan_loro_lodo/train.py --subject sub-02 --leave-out both --permutations 2000 --run-name main_8_2/sub-02
+uv run plan_loro_lodo/train.py --subject sub-03 --leave-out both --permutations 2000 --run-name main_8_2/sub-03
+uv run plan_loro_lodo/train.py --subject sub-04 --leave-out both --permutations 2000 --run-name main_8_2/sub-04
+uv run plan_loro_lodo/train.py --subject sub-05 --leave-out both --permutations 2000 --run-name main_8_2/sub-05
 
 # run identity：2000 次置换
 uv run plan_run_identity/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --permutations 2000 --run-name main_8_2
