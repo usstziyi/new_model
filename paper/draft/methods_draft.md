@@ -136,5 +136,5 @@ sub-01 的类别按句子数降序依次为：10 > 13 > 26 > 24 > 19 > 2 > 31 > 
 12. **实现细节如需进附录**：解析 pkl 文件名 → 逐 run 逐试次记录 index / day / run / pos /
     sentence / n_chars / type_number / type_name → 按句去重并重编号 → 统计频次取前 10 类
     → 按 `(run, pos)` 回取 EEG。
-13. **尚未撰写**：摘要、关键词、引言与讨论；引言草稿见 `paper/introduction_draft.md`
-    （投稿压缩版）与 `paper/introduction_draft_extended.md`（详细版）。
+13. **尚未撰写**：摘要、关键词、引言与讨论；引言草稿见 `paper/draft/introduction_draft.md`
+    （投稿压缩版）与 `paper/draft/introduction_draft_extended.md`（详细版）。
