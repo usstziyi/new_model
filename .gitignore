@@ -11,11 +11,3 @@ wheels/
 
 
 datasets/
-
-figures/
-
-outputs/*
-
-cache/
-
-!outputs/collect_experiment_summary.py
