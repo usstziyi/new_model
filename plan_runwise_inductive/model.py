@@ -100,13 +100,18 @@ def apply_stats(
     stats: dict[int, tuple[np.ndarray, np.ndarray]],
     fallback_mu: np.ndarray,
     fallback_sd: np.ndarray,
+    center_only: bool = False,
 ) -> np.ndarray:
-    """用 ``stats`` 逐 run 标准化；缺少统计量的 run 使用 ``fallback``。"""
+    """用 ``stats`` 逐 run 标准化；缺少统计量的 run 使用 ``fallback``。
+
+    ``center_only=True`` 时只减均值、不除标准差。
+    """
     out = feats.copy()
     for run in np.unique(groups):
         mask = groups == run
         mu, sd = stats.get(int(run), (fallback_mu, fallback_sd))
-        out[mask] = (feats[mask] - mu) / np.maximum(sd, EPS)
+        denom = 1.0 if center_only else np.maximum(sd, EPS)
+        out[mask] = (feats[mask] - mu) / denom
     return out
 
 
@@ -115,6 +120,7 @@ def normalize_inductive(
     groups: np.ndarray,
     train_idx: np.ndarray,
     test_idx: np.ndarray,
+    center_only: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """归纳式 run-wise 归一化：μ/σ 只由 ``train_idx`` 估计。
 
@@ -123,6 +129,7 @@ def normalize_inductive(
         groups: ``(N,)`` 每个试次所属的 run 编号（逐 run 归一化的分组）。
         train_idx: 训练试次下标，唯一允许进入 μ/σ 估计的样本。
         test_idx: 测试试次下标，只做变换。
+        center_only: 只减均值、不除标准差，用于消融 σ 的贡献。
 
     Returns:
         ``(x_train, x_test)``：逐 run 标准化后再用训练集汇总统计量统一尺度。
@@ -132,12 +139,20 @@ def normalize_inductive(
     global_mu = feats[train_idx].mean(axis=0)
     global_sd = feats[train_idx].std(axis=0)
 
-    x_train = apply_stats(feats[train_idx], train_groups, stats, global_mu, global_sd)
-    x_test = apply_stats(feats[test_idx], groups[test_idx], stats, global_mu, global_sd)
+    x_train = apply_stats(
+        feats[train_idx], train_groups, stats, global_mu, global_sd, center_only
+    )
+    x_test = apply_stats(
+        feats[test_idx], groups[test_idx], stats, global_mu, global_sd, center_only
+    )
 
     # 训练集汇总统计量：把逐 run 标准化后的训练数据再拉回统一尺度
     pool_mu = x_train.mean(axis=0)
-    pool_sd = x_train.std(axis=0)
-    x_train = (x_train - pool_mu) / np.maximum(pool_sd, EPS)
-    x_test = (x_test - pool_mu) / np.maximum(pool_sd, EPS)
+    if center_only:
+        x_train = x_train - pool_mu
+        x_test = x_test - pool_mu
+    else:
+        pool_sd = x_train.std(axis=0)
+        x_train = (x_train - pool_mu) / np.maximum(pool_sd, EPS)
+        x_test = (x_test - pool_mu) / np.maximum(pool_sd, EPS)
     return x_train, x_test

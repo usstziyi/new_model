@@ -83,12 +83,17 @@ def make_model(name: str = "lda"):
     raise ValueError(f"未知模型: {name}")
 
 
-def normalize_per_run(feats: np.ndarray, groups: np.ndarray) -> np.ndarray:
+def normalize_per_run(
+    feats: np.ndarray,
+    groups: np.ndarray,
+    center_only: bool = False,
+) -> np.ndarray:
     """直推式 run-wise 归一化：每个 run 用自身全部试次的 μ/σ。
 
     Args:
         feats: ``(N, D)`` 特征矩阵。
         groups: ``(N,)`` 每个试次所属的 run 编号。
+        center_only: 只减均值、不除标准差，用于消融 σ 的贡献。
 
     注意：调用方一旦把测试试次放进 ``feats``，这些试次就会参与自己所在 run 的
     μ/σ 估计。这正是直推式的定义，不是 bug。
@@ -98,6 +103,6 @@ def normalize_per_run(feats: np.ndarray, groups: np.ndarray) -> np.ndarray:
         mask = groups == run
         block = feats[mask]
         mu = block.mean(axis=0)
-        sd = block.std(axis=0)
-        out[mask] = (block - mu) / np.maximum(sd, EPS)
+        denom = 1.0 if center_only else np.maximum(block.std(axis=0), EPS)
+        out[mask] = (block - mu) / denom
     return out

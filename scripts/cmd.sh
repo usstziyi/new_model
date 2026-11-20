@@ -22,7 +22,7 @@ uv run plan_run_identity/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 -
 
 
 
-# 频段 / 通道扫描
+# 频段扫描
 # baseline 频段扫描
 uv run plan_baseline_lda/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --sweep-bands --permutations 0 --run-name main_8_2
 
@@ -32,6 +32,7 @@ uv run plan_loro_lodo/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --sw
 # run identity 频段扫描
 uv run plan_run_identity/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --sweep-bands --permutations 0 --run-name main_8_2
 
+# 通道扫描
 # run identity 通道扫描（与频段扫描分开跑）
 uv run plan_run_identity/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --sweep-channels --permutations 0 --run-name main_8_2
 
@@ -51,7 +52,4 @@ uv run plan_runwise_inductive/train.py --subject sub-01 sub-02 sub-03 sub-04 sub
 uv run plan_runwise_transductive/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --run-name main_8_2
 
 # 汇总
-uv run outputs/collect_runwise_paired.py `
-    --baseline-run outputs/loro_lodo/main_8_2 `
-    --inductive-run outputs/runwise_inductive/main_8_2 `
-    --transductive-run outputs/runwise_transductive/main_8_2
+uv run outputs/collect_runwise_paired.py

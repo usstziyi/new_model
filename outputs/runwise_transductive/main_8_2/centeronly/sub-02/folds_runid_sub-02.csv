@@ -1,0 +1,6 @@
+﻿subject,protocol,split,n_train,n_test,accuracy,macro_f1,majority_baseline_accuracy
+sub-02,runid,fold_1,2019,505,0.0,0.0,0.03564356435643564
+sub-02,runid,fold_2,2019,505,0.0,0.0,0.03564356435643564
+sub-02,runid,fold_3,2019,505,0.0,0.0,0.03564356435643564
+sub-02,runid,fold_4,2019,505,0.0,0.0,0.03564356435643564
+sub-02,runid,fold_5,2020,504,0.0,0.0,0.03571428571428571

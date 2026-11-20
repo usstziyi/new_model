@@ -11,10 +11,20 @@
    诊断列，不能作为方法性能的主结果；
 2. ``loro``：被留出的 run 用自己约 55 条试次估计 μ/σ，属于标准的直推式
    session alignment，不使用任何测试标签；
-3. ``lodo``：口径同 ``loro``，但被留出的是整天，run 级偏移与日间漂移一起被去掉。
+3. ``lodo``：口径同 ``loro``，但被留出的是整天，run 级偏移与日间漂移一起被去掉；
+4. ``runid``：run 身份负对照。把标签换成 run（45 类），只在随机 5 折下评估，
+   用来确认归一化之后 run 信息是否真的被削弱（未归一化时约为 0.98）。
+   ``--protocol all`` 会把它一并跑完。
 
 本实验的结果应与 ``plan_runwise_inductive`` 并列报告：两者的差值就是"知道测试
 run 的分布"带来的收益。
+
+一次运行会依次跑两种归一化口径，结果分目录存放：
+
+- ``zscore``：减均值 + 除标准差（主结果）；
+- ``centeronly``：仅减均值（σ 消融）。
+
+输出布局为 ``<out-dir>/<run-name>/<mode>/<subject>/``（单被试时省略 ``<subject>`` 一层）。
 
 用法::
 
@@ -43,6 +53,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "runwise_transductive"
 NORMALIZATION = "runwise_transductive"
 TRANSDUCTIVE = True
+# (目录名, 是否只减均值)：一次运行依次跑完两种口径
+MODES = (("zscore", False), ("centeronly", True))
 
 REPORT_FIELDS = ["subject", "protocol", "label", "precision", "recall", "f1", "support"]
 FOLD_FIELDS = [
@@ -61,6 +73,7 @@ SUMMARY_FIELDS = [
     "protocol",
     "normalization",
     "transductive",
+    "center_only",
     "top_k",
     "n_samples",
     "n_splits",
@@ -307,6 +320,12 @@ def build_splits(
         splits = list(LeaveOneGroupOut().split(feats, y, dataset.day_groups))
         names = [f"day_{int(dataset.day_groups[test][0]):02d}" for _, test in splits]
         return splits, names, dataset.day_groups
+    if protocol == "runid":
+        # 负对照：标签换成 run 身份，只做随机分层 CV（留一 run 对身份任务无意义）
+        splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
+        splits = list(splitter.split(feats, y))
+        names = [f"fold_{index}" for index in range(1, len(splits) + 1)]
+        return splits, names, dataset.run_groups
     raise ValueError(f"未知协议: {protocol}")
 
 
@@ -332,6 +351,7 @@ def run_protocol(
     out_dir: Path,
     transform,
     folds: int,
+    center_only: bool,
 ) -> tuple[dict, dict | None, dict]:
     """一个协议的完整评估：指标 + 置换 + 落盘，返回 ``(result, permutation, summary)``。"""
     splits, split_names, ci_groups = build_splits(protocol, feats, y, dataset, folds, args.seed)
@@ -414,6 +434,7 @@ def run_protocol(
         "protocol": protocol,
         "normalization": NORMALIZATION,
         "transductive": TRANSDUCTIVE,
+        "center_only": center_only,
         "top_k": args.top_k,
         "n_samples": result["n_samples"],
         "n_splits": result["n_splits"],
@@ -458,8 +479,8 @@ def run_protocol(
     return detail, permutation, summary
 
 
-def run_subject(args, out_dir: Path) -> list[dict]:
-    """完成一个被试在三种协议下的评估并落盘，返回 summary 行。"""
+def run_subject(args, out_dir: Path, center_only: bool) -> list[dict]:
+    """完成一个被试在指定归一化口径下、三种协议的评估并落盘，返回 summary 行。"""
     dataset = RunwiseEEGDataset(
         subject=args.subject,
         task=args.task,
@@ -490,22 +511,49 @@ def run_subject(args, out_dir: Path) -> list[dict]:
     )
 
     # 直推式归一化：每个 run 用自身全部试次，一次性变换，三种协议共用
-    feats_norm = normalize_per_run(feats, dataset.run_groups)
+    feats_norm = normalize_per_run(feats, dataset.run_groups, center_only=center_only)
+    mode_text = "仅减均值" if center_only else "减均值 + 除标准差"
     print(
-        f"[Normalize] 直推式 run-wise：{len(dataset.run_ids)} 个 run 各自估计 μ/σ，"
-        "测试试次参与估计",
+        f"[Normalize] 直推式 run-wise（{mode_text}）：{len(dataset.run_ids)} 个 run "
+        "各自估计 μ/σ，测试试次参与估计",
         flush=True,
     )
 
     def transform(train_idx: np.ndarray, test_idx: np.ndarray):
         return feats_norm[train_idx], feats_norm[test_idx]
 
-    protocols = ["cv5", "loro", "lodo"] if args.protocol == "all" else [args.protocol]
+    protocols = ["cv5", "loro", "lodo", "runid"] if args.protocol == "all" else [args.protocol]
     details: dict[str, dict] = {}
     summary_rows: list[dict] = []
+
+    # run 身份负对照：标签换成 run，仅用于随机 CV
+    run_ids = sorted({int(run) for run in dataset.run_groups})
+    run_to_label = {run: index for index, run in enumerate(run_ids)}
+    y_run = np.asarray([run_to_label[int(run)] for run in dataset.run_groups], dtype=np.int64)
+    run_names = [f"run_{run:02d}" for run in run_ids]
+    run_folds = min(args.folds, int(np.bincount(y_run).min()))
+    print(
+        f"[RunIdentity] {len(run_ids)} 类（最小 run {int(np.bincount(y_run).min())} 条，"
+        f"{run_folds} 折），chance={1 / len(run_ids):.4f}",
+        flush=True,
+    )
+
     for protocol in protocols:
+        if protocol == "runid":
+            task_y, task_names, task_folds = y_run, run_names, run_folds
+        else:
+            task_y, task_names, task_folds = y, class_names, folds
         detail, _, summary = run_protocol(
-            protocol, feats, y, dataset, class_names, args, out_dir, transform, folds
+            protocol,
+            feats,
+            task_y,
+            dataset,
+            task_names,
+            args,
+            out_dir,
+            transform,
+            task_folds,
+            center_only,
         )
         details[protocol] = detail
         summary_rows.append(summary)
@@ -526,6 +574,7 @@ def run_subject(args, out_dir: Path) -> list[dict]:
         "top_k": args.top_k,
         "normalization": NORMALIZATION,
         "transductive": TRANSDUCTIVE,
+        "center_only": center_only,
         "classes": class_names,
         "n_samples": int(len(y)),
         "n_features": int(feats.shape[1]),
@@ -564,8 +613,8 @@ def parse_args():
     parser.add_argument(
         "--protocol",
         default="all",
-        choices=("cv5", "loro", "lodo", "all"),
-        help="跑哪个协议：随机 5 折 / 留一 run / 留一天 / 全部",
+        choices=("cv5", "loro", "lodo", "runid", "all"),
+        help="跑哪个协议：随机 5 折 / 留一 run / 留一天 / run 身份负对照 / 全部",
     )
     parser.add_argument("--folds", type=int, default=5, help="随机 CV 折数")
     parser.add_argument(
@@ -585,22 +634,24 @@ def main():
     subjects = list(args.subject)
     base_folds = args.folds
     run_name = args.run_name or f"runwise_transductive_{datetime.now():%Y%m%d_%H%M%S}"
-    all_rows: list[dict] = []
 
-    for subject in subjects:
-        args.subject = subject
-        args.folds = base_folds  # 上一个被试可能因样本太少降过折数，重置
-        out_dir = args.out_dir / run_name
+    for mode_name, center_only in MODES:
+        print(f"\n##### 归一化口径：{mode_name} #####")
+        all_rows: list[dict] = []
+        for subject in subjects:
+            args.subject = subject
+            args.folds = base_folds  # 上一个被试可能因样本太少降过折数，重置
+            out_dir = args.out_dir / run_name / mode_name
+            if len(subjects) > 1:
+                out_dir = out_dir / subject
+            out_dir.mkdir(parents=True, exist_ok=True)
+            print(f"\n===== 被试 {subject} =====")
+            all_rows.extend(run_subject(args, out_dir, center_only))
+
         if len(subjects) > 1:
-            out_dir = out_dir / subject
-        out_dir.mkdir(parents=True, exist_ok=True)
-        print(f"\n===== 被试 {subject} =====")
-        all_rows.extend(run_subject(args, out_dir))
-
-    if len(subjects) > 1:
-        summary_path = args.out_dir / run_name / "summary_all.csv"
-        write_rows(summary_path, all_rows, SUMMARY_FIELDS)
-        print(f"[Saved] {summary_path}")
+            summary_path = args.out_dir / run_name / mode_name / "summary_all.csv"
+            write_rows(summary_path, all_rows, SUMMARY_FIELDS)
+            print(f"[Saved] {summary_path}")
 
 
 if __name__ == "__main__":

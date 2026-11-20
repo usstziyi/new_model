@@ -1,0 +1,6 @@
+﻿subject,protocol,split,n_train,n_test,accuracy,macro_f1,majority_baseline_accuracy
+sub-01,runid,fold_1,1967,492,0.0,0.0,0.036585365853658534
+sub-01,runid,fold_2,1967,492,0.0,0.0,0.034552845528455285
+sub-01,runid,fold_3,1967,492,0.0,0.0,0.034552845528455285
+sub-01,runid,fold_4,1967,492,0.0,0.0,0.034552845528455285
+sub-01,runid,fold_5,1968,491,0.0,0.0,0.034623217922606926

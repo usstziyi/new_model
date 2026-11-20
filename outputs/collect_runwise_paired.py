@@ -4,16 +4,22 @@
 
 - 无归一化：``outputs/loro_lodo/<run>/<subject>/paired_{loro,lodo}_<subject>.csv``
   里的 ``loo_accuracy``；
-- 归纳式：``outputs/runwise_inductive/<run>/<subject>/folds_{loro,lodo}_<subject>.csv``
+- 归纳式：``outputs/runwise_inductive/<run>/<mode>/<subject>/folds_{loro,lodo}_<subject>.csv``
   里的 ``accuracy``；
-- 直推式：``outputs/runwise_transductive/<run>/<subject>/folds_{loro,lodo}_<subject>.csv``
+- 直推式：``outputs/runwise_transductive/<run>/<mode>/<subject>/folds_{loro,lodo}_<subject>.csv``
   里的 ``accuracy``。
 
-输出（默认 ``outputs/runwise_paired/``）：
+输出（默认 ``outputs/runwise_paired/``，两种口径写在同一目录）：
 
-- ``paired_<protocol>.csv``：逐组宽表，含三种口径与两个差值；
-- ``paired_<protocol>_summary.csv``：逐被试与跨被试的配对统计——均值差、
-  按 run 重采样的 95% CI、Wilcoxon 符号秩 p、变好/持平/变坏的组数。
+- ``paired_<mode>_<protocol>.csv``：逐组宽表，含三种口径与两个差值；
+- ``paired_<mode>_<protocol>_summary.csv``：逐被试与跨被试的配对统计——均值差、
+  按 run 重采样的 95% CI、Wilcoxon 符号秩 p、变好/持平/变坏的组数；
+- ``summary_all.csv``：把两种口径、两种协议的所有汇总行拼成一张长表。
+
+默认 ``--mode both``，一次运行依次处理 ``zscore`` 与 ``centeronly``，两者写进
+同一目录、靠 ``mode`` 列与文件名区分，避免分目录后漏跑一边或对不上号。
+``runwise_inductive`` / ``runwise_transductive`` 的 mode 子目录缺失时会跳过该口径；
+显式指定单一 ``--mode`` 且没有该子目录时，回退到根目录以兼容旧布局。
 
 差值的符号统一为 **归一化后 − 无归一化**：负值表示归一化让该 run 变差。
 
@@ -25,6 +31,7 @@
         --transductive-run outputs/runwise_transductive/main_8_2
 
     uv run outputs/collect_runwise_paired.py --protocol lodo
+    uv run outputs/collect_runwise_paired.py --mode centeronly   # 只做一种口径
 
 不指定 ``*-run`` 时自动选择对应实验目录下最新的、含逐折文件的运行目录；
 ``_smoke`` / ``_test`` 目录会被跳过，显式传入时不受此限制。
@@ -58,6 +65,7 @@ CONTRASTS = {
 }
 
 PAIR_FIELDS = [
+    "mode",
     "protocol",
     "subject",
     "group",
@@ -69,6 +77,7 @@ PAIR_FIELDS = [
     "delta_transductive_minus_baseline",
 ]
 SUMMARY_FIELDS = [
+    "mode",
     "protocol",
     "level",
     "subject",
@@ -151,7 +160,7 @@ def _paired_stats(diffs: np.ndarray, seed: int) -> dict:
     }
 
 
-def load_protocol(protocol: str, roots: dict[str, Path]) -> pd.DataFrame:
+def load_protocol(protocol: str, roots: dict[str, Path], mode: str) -> pd.DataFrame:
     """按 ``(subject, group)`` 对齐三种口径，返回逐组长表。"""
     base_root = roots["baseline"]
     prefix = f"paired_{protocol}_"
@@ -205,6 +214,7 @@ def load_protocol(protocol: str, roots: dict[str, Path]) -> pd.DataFrame:
 
     frame = pd.concat(frames, ignore_index=True)
     frame = frame.sort_values(["subject", "group"]).reset_index(drop=True)
+    frame["mode"] = mode
     frame["protocol"] = protocol
     frame["delta_inductive_minus_baseline"] = (
         frame["inductive_accuracy"] - frame["baseline_accuracy"]
@@ -215,7 +225,7 @@ def load_protocol(protocol: str, roots: dict[str, Path]) -> pd.DataFrame:
     return frame
 
 
-def summarize(frame: pd.DataFrame, protocol: str, seed: int) -> pd.DataFrame:
+def summarize(frame: pd.DataFrame, protocol: str, seed: int, mode: str) -> pd.DataFrame:
     """逐被试 + 跨被试的配对统计。"""
     rows: list[dict] = []
     if frame.empty:
@@ -229,6 +239,7 @@ def summarize(frame: pd.DataFrame, protocol: str, seed: int) -> pd.DataFrame:
             stats = _paired_stats(valid[column].to_numpy() - valid["baseline_accuracy"].to_numpy(), seed)
             rows.append(
                 {
+                    "mode": mode,
                     "protocol": protocol,
                     "level": "subject",
                     "subject": subject,
@@ -251,6 +262,7 @@ def summarize(frame: pd.DataFrame, protocol: str, seed: int) -> pd.DataFrame:
         stats = _paired_stats(np.asarray(subject_diffs, dtype=float), seed)
         rows.append(
             {
+                "mode": mode,
                 "protocol": protocol,
                 "level": "across_subject",
                 "subject": "all",
@@ -264,12 +276,12 @@ def summarize(frame: pd.DataFrame, protocol: str, seed: int) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=SUMMARY_FIELDS)
 
 
-def print_summary(protocol: str, summary: pd.DataFrame) -> None:
+def print_summary(mode: str, protocol: str, summary: pd.DataFrame) -> None:
     header = (
         f"{'level':<15}{'subject':<9}{'contrast':<26}{'n':>4}"
         f"{'base':>8}{'norm':>8}{'diff':>8}{'95% CI':>20}{'p':>9}{'better/worse':>13}"
     )
-    print(f"\n=== [{protocol}] 配对结果（差值 = 归一化后 − 无归一化）===")
+    print(f"\n=== [{mode}][{protocol}] 配对结果（差值 = 归一化后 − 无归一化）===")
     print(header)
     print("-" * len(header))
     for _, row in summary.iterrows():
@@ -295,7 +307,7 @@ def resolve_roots(args) -> dict[str, Path]:
     }
     for key, value in explicit.items():
         if value is not None:
-            roots[key] = value
+            roots[key] = value.resolve()
             continue
         latest = _latest_run(EXPERIMENT_ROOTS[key])
         if latest is None:
@@ -305,6 +317,24 @@ def resolve_roots(args) -> dict[str, Path]:
             )
         roots[key] = latest
         print(f"[自动] {key} = {latest.relative_to(PROJECT_ROOT)}")
+    return roots
+
+
+def apply_mode(base_roots: dict[str, Path], mode: str, strict: bool) -> dict[str, Path] | None:
+    """把 inductive / transductive 根目录下钻到 ``<mode>`` 子目录。
+
+    ``strict=True``（``--mode both``）时缺少子目录返回 ``None``，由调用方跳过该口径；
+    ``strict=False`` 时回退到根目录，兼容没有 mode 子目录的旧布局。
+    """
+    roots = dict(base_roots)
+    for key in ("inductive", "transductive"):
+        mode_dir = base_roots[key] / mode
+        if mode_dir.is_dir():
+            roots[key] = mode_dir
+        elif strict:
+            return None
+        else:
+            print(f"[旧布局] {key} 下没有 {mode} 子目录，按根目录读取")
     return roots
 
 
@@ -321,30 +351,55 @@ def main() -> None:
         choices=("loro", "lodo", "both"),
         help="按 run 留一（loro）还是按天留一（lodo）配对",
     )
+    parser.add_argument(
+        "--mode",
+        default="both",
+        choices=("both", "zscore", "centeronly"),
+        help="配对哪个归一化口径；both 会依次处理 zscore 与 centeronly",
+    )
     parser.add_argument("--seed", type=int, default=42, help="bootstrap 与检验的随机种子")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出目录")
     args = parser.parse_args()
 
-    roots = resolve_roots(args)
+    base_roots = resolve_roots(args)
     protocols = ["loro", "lodo"] if args.protocol == "both" else [args.protocol]
+    modes = ["zscore", "centeronly"] if args.mode == "both" else [args.mode]
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    for protocol in protocols:
-        frame = load_protocol(protocol, roots)
-        if frame.empty:
-            print(f"\n[{protocol}] 没有可配对的组，跳过")
+    summaries: list[pd.DataFrame] = []
+    for mode in modes:
+        roots = apply_mode(base_roots, mode, strict=args.mode == "both")
+        if roots is None:
+            print(
+                f"\n[跳过] {base_roots['inductive']} 或 "
+                f"{base_roots['transductive']} 下缺少 {mode} 子目录"
+            )
             continue
-        pairs_path = args.out_dir / f"paired_{protocol}.csv"
-        frame[[column for column in PAIR_FIELDS if column in frame]].to_csv(
-            pairs_path, index=False, encoding="utf-8-sig"
-        )
-        print(f"\n[Saved] {pairs_path}")
 
-        summary = summarize(frame, protocol, args.seed)
-        summary_path = args.out_dir / f"paired_{protocol}_summary.csv"
-        summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
-        print_summary(protocol, summary)
-        print(f"[Saved] {summary_path}")
+        for protocol in protocols:
+            frame = load_protocol(protocol, roots, mode)
+            if frame.empty:
+                print(f"\n[{mode}][{protocol}] 没有可配对的组，跳过")
+                continue
+
+            pairs_path = args.out_dir / f"paired_{mode}_{protocol}.csv"
+            frame[[column for column in PAIR_FIELDS if column in frame]].to_csv(
+                pairs_path, index=False, encoding="utf-8-sig"
+            )
+            print(f"\n[Saved] {pairs_path}")
+
+            summary = summarize(frame, protocol, args.seed, mode)
+            print_summary(mode, protocol, summary)
+            summary_path = args.out_dir / f"paired_{mode}_{protocol}_summary.csv"
+            summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
+            print(f"[Saved] {summary_path}")
+            summaries.append(summary)
+
+    if summaries:
+        combined = pd.concat(summaries, ignore_index=True)
+        combined_path = args.out_dir / "summary_all.csv"
+        combined.to_csv(combined_path, index=False, encoding="utf-8-sig")
+        print(f"\n[Saved] {combined_path}")
 
 
 if __name__ == "__main__":
