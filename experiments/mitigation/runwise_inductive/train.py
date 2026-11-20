@@ -1,23 +1,9 @@
-"""run-wise 归一化（直推式）下的三种评估协议：随机 5 折 CV、LORO、LODO。
+"""run-wise 归一化（归纳式）下的三种评估协议：随机 5 折 CV、LORO、LODO。
 
-与 ``plan_runwise_inductive`` 用的是同一份特征、同一个分类器、同一套划分，差别
-只在归一化的估计口径：**每个 run 用自身全部试次的 μ/σ**（见
-``model.normalize_per_run``），因此测试 run 的无标签试次参与了归一化。
-
-三种协议下这一口径的后果不同，解读时必须区分：
-
-1. ``cv5``：测试折的试次和训练折的试次同属一个 run，因此测试试次参与了自己的
-   μ/σ 估计。这是随机划分与 run-wise 归一化叠加后的**双重泄漏口径**，只能作为
-   诊断列，不能作为方法性能的主结果；
-2. ``loro``：被留出的 run 用自己约 55 条试次估计 μ/σ，属于标准的直推式
-   session alignment，不使用任何测试标签；
-3. ``lodo``：口径同 ``loro``，但被留出的是整天，run 级偏移与日间漂移一起被去掉；
-4. ``runid``：run 身份负对照。把标签换成 run（45 类），只在随机 5 折下评估，
-   用来确认归一化之后 run 信息是否真的被削弱（未归一化时约为 0.98）。
-   ``--protocol all`` 会把它一并跑完。
-
-本实验的结果应与 ``plan_runwise_inductive`` 并列报告：两者的差值就是"知道测试
-run 的分布"带来的收益。
+与 ``experiments/diagnostics/loro_lodo`` 的唯一区别是：特征送入分类器之前先按 run 做标准化，且
+μ/σ 的估计严格不使用任何留出试次（实现见 ``model.normalize_inductive``）。
+特征（log 相对频带功率）与分类器（收缩 LDA）保持一致，因此结果可与
+``experiments/diagnostics/baseline_lda`` 的随机划分、``experiments/diagnostics/loro_lodo`` 的留一数字直接对比。
 
 一次运行会依次跑两种归一化口径，结果分目录存放：
 
@@ -26,12 +12,26 @@ run 的分布"带来的收益。
 
 输出布局为 ``<out-dir>/<run-name>/<mode>/<subject>/``（单被试时省略 ``<subject>`` 一层）。
 
+三种协议：
+
+1. ``cv5``：按句类分层的随机 5 折。每折内只用训练折的试次估计每个 run 的 μ/σ，
+   测试试次只被变换、不参与估计；
+2. ``loro``：每次留出一个 run。该 run 在训练集中不存在，只能用训练集汇总统计量
+   变换，run 级偏移不会被去除；
+3. ``lodo``：每次留出一个采集日，口径同 ``loro``；
+4. ``runid``：run 身份负对照。把标签换成 run（45 类），只在随机 5 折下评估，
+   用来确认归一化之后 run 信息是否真的被削弱（未归一化时约为 0.98）。
+   ``--protocol all`` 会把它一并跑完。
+
+每个协议都会报告池化准确率（附 run 级 cluster bootstrap 95% CI）、逐折均值与
+标准差、宏平均 F1、多数类基线，以及可选的置换零分布。
+
 用法::
 
-    uv run plan_runwise_transductive/train.py --subject sub-01 --permutations 0
-    uv run plan_runwise_transductive/train.py --protocol cv5 --subject sub-01 sub-02
-    uv run plan_runwise_transductive/train.py --protocol loro --run-name main_8_2
-    uv run plan_runwise_transductive/train.py --permutations 200 --run-name main_8_2
+    uv run experiments/mitigation/runwise_inductive/train.py --subject sub-01 --permutations 0
+    uv run experiments/mitigation/runwise_inductive/train.py --protocol cv5 --subject sub-01 sub-02
+    uv run experiments/mitigation/runwise_inductive/train.py --protocol loro --run-name main_8_2
+    uv run experiments/mitigation/runwise_inductive/train.py --permutations 200 --run-name main_8_2
 """
 
 from __future__ import annotations
@@ -47,12 +47,12 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold
 
 from dataset import CSV_ROOT, PKL_ROOT, RunwiseEEGDataset
-from model import BANDS, extract_features, make_model, normalize_per_run
+from model import BANDS, extract_features, make_model, normalize_inductive
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "runwise_transductive"
-NORMALIZATION = "runwise_transductive"
-TRANSDUCTIVE = True
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "runwise_inductive"
+NORMALIZATION = "runwise_inductive"
+TRANSDUCTIVE = False
 # (目录名, 是否只减均值)：一次运行依次跑完两种口径
 MODES = (("zscore", False), ("centeronly", True))
 
@@ -510,17 +510,14 @@ def run_subject(args, out_dir: Path, center_only: bool) -> list[dict]:
         flush=True,
     )
 
-    # 直推式归一化：每个 run 用自身全部试次，一次性变换，三种协议共用
-    feats_norm = normalize_per_run(feats, dataset.run_groups, center_only=center_only)
-    mode_text = "仅减均值" if center_only else "减均值 + 除标准差"
-    print(
-        f"[Normalize] 直推式 run-wise（{mode_text}）：{len(dataset.run_ids)} 个 run "
-        "各自估计 μ/σ，测试试次参与估计",
-        flush=True,
-    )
-
+    # 归纳式归一化：每折都只用该折的训练试次估计 μ/σ
     def transform(train_idx: np.ndarray, test_idx: np.ndarray):
-        return feats_norm[train_idx], feats_norm[test_idx]
+        return normalize_inductive(
+            feats, dataset.run_groups, train_idx, test_idx, center_only=center_only
+        )
+
+    mode_text = "仅减均值" if center_only else "减均值 + 除标准差"
+    print(f"[Normalize] 归纳式 run-wise（{mode_text}），μ/σ 只来自训练试次", flush=True)
 
     protocols = ["cv5", "loro", "lodo", "runid"] if args.protocol == "all" else [args.protocol]
     details: dict[str, dict] = {}
@@ -569,7 +566,7 @@ def run_subject(args, out_dir: Path, center_only: bool) -> list[dict]:
 
     payload = {
         "subject": args.subject,
-        "task": "runwise_transductive_classification",
+        "task": "runwise_inductive_classification",
         "eeg_task": args.task,
         "top_k": args.top_k,
         "normalization": NORMALIZATION,
@@ -599,7 +596,7 @@ def run_subject(args, out_dir: Path, center_only: bool) -> list[dict]:
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="run-wise 归一化（直推式）+ 随机 CV / LORO / LODO 句类分类。"
+        description="run-wise 归一化（归纳式）+ 随机 CV / LORO / LODO 句类分类。"
     )
     parser.add_argument("--subject", nargs="+", default=["sub-01"], help="被试编号，可指定多个")
     parser.add_argument("--task", default="imagine", choices=("imagine", "reading"), help="读取哪一组 CSV / run pkl")
@@ -633,7 +630,7 @@ def main():
     args = parse_args()
     subjects = list(args.subject)
     base_folds = args.folds
-    run_name = args.run_name or f"runwise_transductive_{datetime.now():%Y%m%d_%H%M%S}"
+    run_name = args.run_name or f"runwise_inductive_{datetime.now():%Y%m%d_%H%M%S}"
 
     for mode_name, center_only in MODES:
         print(f"\n##### 归一化口径：{mode_name} #####")

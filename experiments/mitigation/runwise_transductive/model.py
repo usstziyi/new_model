@@ -1,12 +1,12 @@
 """run-wise 归一化（直推式）的特征前端与分类器。
 
-特征与分类器与 ``plan_baseline_lda`` / ``plan_loro_lodo`` 逐行一致（log 相对频带
+特征与分类器与 ``experiments/diagnostics/baseline_lda`` / ``experiments/diagnostics/loro_lodo`` 逐行一致（log 相对频带
 功率 + 收缩 LDA），唯一的差别是送入分类器前多一步按 run 的标准化。
 
 直推式的含义：**每个 run 用自身全部试次的 μ/σ 归一化**，不做任何保留。因此在
 留出协议下，测试 run 的无标签试次参与了 μ/σ 的估计；在随机 5 折 CV 下，测试
 折的试次也参与了自己所在 run 的 μ/σ 估计——这是本实验要量化的口径，必须与
-``plan_runwise_inductive`` 并列报告，不能当作与归纳式结果可比的数字。
+``experiments/mitigation/runwise_inductive`` 并列报告，不能当作与归纳式结果可比的数字。
 
 由于归一化只依赖特征与 run 分组、不依赖标签，三种协议（cv5 / loro / lodo）
 共用同一份归一化后的特征矩阵。

@@ -1,6 +1,6 @@
 """run-wise 归一化（归纳式）的特征前端与分类器。
 
-特征与分类器与 ``plan_baseline_lda`` / ``plan_loro_lodo`` 逐行一致（log 相对频带
+特征与分类器与 ``experiments/diagnostics/baseline_lda`` / ``experiments/diagnostics/loro_lodo`` 逐行一致（log 相对频带
 功率 + 收缩 LDA），唯一的差别是送入分类器前多一步按 run 的标准化，并且
 **μ/σ 的估计严格不使用任何留出试次**：
 

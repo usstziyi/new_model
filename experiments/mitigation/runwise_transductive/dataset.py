@@ -1,8 +1,8 @@
-"""LORO / LODO 句类数据集：直接由试次表 CSV + 原始 run pkl 构造。
+"""run-wise 归一化（直推式）实验的句类数据集：直接由试次表 CSV + 原始 run pkl 构造。
 
-与原 LORO 实验（``plan_loro_classification``，已删除）的 dataset 同源，差别只在分组：
-这里同时暴露 ``run_groups``（leave-one-run-out）与 ``day_groups``（leave-one-day-out），
-训练入口可以复用同一份数据和特征，只切换分组向量。
+与 ``experiments/diagnostics/loro_lodo/dataset.py`` 完全同源，额外只做一件事：同时暴露
+``run_groups``（逐 run 标准化与 LORO 的分组）与 ``day_groups``（LODO 的分组），
+让三种评估协议复用同一份数据。本目录独立维护，不 import 其他 plan_* 目录。
 
 数据来源（均相对项目根目录）::
 
@@ -32,9 +32,9 @@
 
 用法::
 
-    from dataset import LoroLodoEEGDataset
+    from dataset import RunwiseEEGDataset
 
-    ds = LoroLodoEEGDataset("sub-01")
+    ds = RunwiseEEGDataset("sub-01")
     ds.run_groups  # 每个试次的原始 run 编号
     ds.day_groups  # 每个试次所属的采集日
 """
@@ -52,7 +52,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CSV_ROOT = PROJECT_ROOT / "datasets/preprocessed"
 PKL_ROOT = PROJECT_ROOT / "datasets/ds005170-download/derivatives/preprocessed_pkl"
 CHANNELS_CSV = PROJECT_ROOT / "scripts/channels_122.csv"
@@ -126,7 +126,7 @@ def read_rows(csv_path: Path) -> list[dict]:
         return list(csv.DictReader(handle))
 
 
-class LoroLodoEEGDataset(Dataset):
+class RunwiseEEGDataset(Dataset):
     """由 CSV 选类并加载 EEG，标签为句类，同时提供 run / day 两种分组。
 
     Args:
@@ -348,7 +348,7 @@ def main() -> None:
     """冒烟检查：加载全量数据，打印 run / day 分布与一个 batch。"""
     from torch.utils.data import DataLoader, Subset
 
-    dataset = LoroLodoEEGDataset("sub-01")
+    dataset = RunwiseEEGDataset("sub-01")
     print(
         "类别映射: "
         f"{dict(zip(range(len(dataset.class_ids)), dataset.class_ids))}"

@@ -1,6 +1,6 @@
 """run 身份探针：把标签换成就诊试次所在的 run，看 EEG 能否解码 run。
 
-背景：``plan_baseline_lda`` 的句类分类用 8:2 随机划分，同一 run 的试次会同时
+背景：``experiments/diagnostics/baseline_lda`` 的句类分类用 8:2 随机划分，同一 run 的试次会同时
 出现在 train 和 test 中。如果 run 本身在频谱特征上有强烈指纹（阻抗、疲劳、
 残余伪迹等），分类器可能借 run 走捷径。本实验把标签直接改成 ``meta["run"]``，
 用与 baseline 完全相同的特征和分类器跑一遍。数据直接由
@@ -22,13 +22,13 @@
 
 用法::
 
-    uv run plan_run_identity/train.py
-    uv run plan_run_identity/train.py --bands-mode abs
-    uv run plan_run_identity/train.py --permutations 100 --folds 5
-    uv run plan_run_identity/train.py --sweep-bands --run-name sweep_rel_lda
-    uv run plan_run_identity/train.py --sweep-channels --run-name sweep_channels_lda
-    uv run plan_run_identity/train.py --use-64-channels
-    uv run plan_run_identity/train.py --subject sub-01 sub-02
+    uv run experiments/diagnostics/run_identity/train.py
+    uv run experiments/diagnostics/run_identity/train.py --bands-mode abs
+    uv run experiments/diagnostics/run_identity/train.py --permutations 100 --folds 5
+    uv run experiments/diagnostics/run_identity/train.py --sweep-bands --run-name sweep_rel_lda
+    uv run experiments/diagnostics/run_identity/train.py --sweep-channels --run-name sweep_channels_lda
+    uv run experiments/diagnostics/run_identity/train.py --use-64-channels
+    uv run experiments/diagnostics/run_identity/train.py --subject sub-01 sub-02
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ from sklearn.model_selection import StratifiedKFold
 from dataset import CSV_ROOT, PKL_ROOT, RunLabelEEGDataset, split_indices
 from model import BANDS, extract_features, make_model
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "run_identity"
 MONTAGE_CSV = PROJECT_ROOT / "scripts/montage.csv"
 BAD_CHANNELS_CSV = PROJECT_ROOT / "outputs" / "bad_channels" / "bad_channels.csv"

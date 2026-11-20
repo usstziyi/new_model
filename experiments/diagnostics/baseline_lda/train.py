@@ -27,19 +27,19 @@ run pkl 加载（见 ``dataset.py``），不经过 ``top10_imagine`` / ``top10_r
 用法::
 
 
-    uv run plan_baseline_lda/train.py --sweep-bands --run-name sweep_rel_lda
+    uv run experiments/diagnostics/baseline_lda/train.py --sweep-bands --run-name sweep_rel_lda
 
 
-    uv run plan_baseline_lda/train.py
-    uv run plan_baseline_lda/train.py --subject sub-01 sub-02
-    uv run plan_baseline_lda/train.py --task reading      # 句朗读任务
-    uv run plan_baseline_lda/train.py --top-k 10
-    uv run plan_baseline_lda/train.py --model svm      # RBF 核 SVM
-    uv run plan_baseline_lda/train.py --model logreg
-    uv run plan_baseline_lda/train.py --use-64-channels
-    uv run plan_baseline_lda/train.py --permutations 100 --folds 5
-    uv run plan_baseline_lda/train.py --bands-mode abs      # 改用绝对 log 功率
-    uv run plan_baseline_lda/train.py --sweep-bands         # 单频段 + 留一频段扫描
+    uv run experiments/diagnostics/baseline_lda/train.py
+    uv run experiments/diagnostics/baseline_lda/train.py --subject sub-01 sub-02
+    uv run experiments/diagnostics/baseline_lda/train.py --task reading      # 句朗读任务
+    uv run experiments/diagnostics/baseline_lda/train.py --top-k 10
+    uv run experiments/diagnostics/baseline_lda/train.py --model svm      # RBF 核 SVM
+    uv run experiments/diagnostics/baseline_lda/train.py --model logreg
+    uv run experiments/diagnostics/baseline_lda/train.py --use-64-channels
+    uv run experiments/diagnostics/baseline_lda/train.py --permutations 100 --folds 5
+    uv run experiments/diagnostics/baseline_lda/train.py --bands-mode abs      # 改用绝对 log 功率
+    uv run experiments/diagnostics/baseline_lda/train.py --sweep-bands         # 单频段 + 留一频段扫描
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ from sklearn.model_selection import StratifiedKFold
 from dataset import CSV_ROOT, PKL_ROOT, TopClassEEGDataset, split_indices
 from model import BANDS, extract_features, make_model
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "baseline_lda"
 
 REPORT_FIELDS = ["subject", "label", "precision", "recall", "f1", "support"]

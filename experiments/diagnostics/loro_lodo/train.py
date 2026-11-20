@@ -1,14 +1,14 @@
 """leave-one-run-out / leave-one-day-out 句类分类：量化随机划分的准确率有多少来自 run / day 签名。
 
-背景：``plan_baseline_lda`` 的随机划分会让同一 run 的试次同时出现在
-train / test；``plan_run_identity`` 已证明 run 身份可以接近 100% 被解码，
+背景：``experiments/diagnostics/baseline_lda`` 的随机划分会让同一 run 的试次同时出现在
+train / test；``experiments/diagnostics/run_identity`` 已证明 run 身份可以接近 100% 被解码，
 且 run 与句类明显混杂。本实验在**同一份数据、同一套特征与分类器**上做两组
 留一对照：
 
 1. **leave-one-run-out（LORO）**：每次留出整个 run 作为测试集，用其余 run 训练，
    句类准确率无法再借助“见过的 run 指纹”；
 2. **leave-one-day-out（LODO）**：每次留出整整一个采集日，进一步排除日间漂移；
-3. **随机 5 折参考**：与 ``plan_baseline_lda`` 的 CV 口径一致，并保留每折 OOF
+3. **随机 5 折参考**：与 ``experiments/diagnostics/baseline_lda`` 的 CV 口径一致，并保留每折 OOF
    预测，用于**逐组配对比较**（参考准确率 − 留一准确率）；
 4. **多数类基线 / chance**：不依赖 EEG 的下限；留一池化准确率附组级 bootstrap
    95% CI；
@@ -31,11 +31,11 @@ train / test；``plan_run_identity`` 已证明 run 身份可以接近 100% 被�
 
 用法::
 
-    uv run plan_loro_lodo/train.py
-    uv run plan_loro_lodo/train.py --subject sub-01 sub-02
-    uv run plan_loro_lodo/train.py --leave-out day
-    uv run plan_loro_lodo/train.py --permutations 0
-    uv run plan_loro_lodo/train.py --sweep-bands --permutations 0
+    uv run experiments/diagnostics/loro_lodo/train.py
+    uv run experiments/diagnostics/loro_lodo/train.py --subject sub-01 sub-02
+    uv run experiments/diagnostics/loro_lodo/train.py --leave-out day
+    uv run experiments/diagnostics/loro_lodo/train.py --permutations 0
+    uv run experiments/diagnostics/loro_lodo/train.py --sweep-bands --permutations 0
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold
 from dataset import CSV_ROOT, PKL_ROOT, LoroLodoEEGDataset
 from model import BANDS, extract_features, make_model
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUT_DIR = PROJECT_ROOT / "outputs" / "loro_lodo"
 
 MODE_LABELS = {"run": "loro", "day": "lodo"}

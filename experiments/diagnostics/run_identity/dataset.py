@@ -1,7 +1,4 @@
-"""Top-k 类 EEG 数据集：直接由试次表 CSV + 原始 run pkl 构造。
-
-与 ``plan_run_identity/dataset.py`` 同源，只是标签换成句类 ``type_number``，
-不再依赖 ``datasets/top10_imagine`` / ``datasets/top10_reading`` 中间产物。
+"""run 身份探针数据集：直接由试次表 CSV + 原始 run pkl 构造。
 
 数据来源（均相对项目根目录）::
 
@@ -11,17 +8,17 @@
         <subject>_task-<read|imagine>_run-<NNN>_eeg.pkl
         每个 pkl 是该 run 的试次列表，每项 {"text": str, "input_features": (1, 125, T)}
 
-流程：
+不再依赖 ``datasets/top10_imagine/class_*.pkl`` 这一中间产物，流程改为：
 
 1. 读取 CSV 全部行，按 ``type_number`` 出现次数取前 ``top_k`` 类；
 2. 只保留这些类的行，按 ``(type_number, run, pos)`` 排序
-   —— 与原先 top-k 中间产物的顺序一致，结果可直接对比；
+   —— 与原先“按类别拼接、类内按 run/pos”的顺序完全一致，结果可直接对比；
 3. 按 run 分组，每个 run 的 pkl 只解包一次，用 ``(run, pos)`` 定位试次，
    取前 122 个 EEG 通道，拼成 ``(N, 122, T)`` 并常驻内存。
 
-标签构造：把选中的 ``type_number`` 按升序重映射为连续的 ``0..C-1``。``meta``
-里的 day / run 只保留作事后诊断，不参与训练；随机划分见 ``split_indices``
-（默认 8:2，不设 val）。
+标签构造：把所有选中试次拼起来后，按 ``meta["run"]`` 的升序把原始 run 编号
+重映射为连续的 ``0..R-1``；同时保留原始类别标签 ``orig_labels`` 仅用于诊断
+run 与句类之间的混淆程度，不参与训练。
 
 通道：pkl 的 125 通道 = 122 EEG + ``VEO`` + ``HEO`` + ``Trigger``，本模块只取
 前 122 个，顺序以 ``scripts/channels_122.csv`` 为基准；``use_64_channels=True``
@@ -29,9 +26,9 @@
 
 用法::
 
-    from dataset import TopClassEEGDataset, split_indices
+    from dataset import RunLabelEEGDataset, split_indices
 
-    ds = TopClassEEGDataset("sub-01", task="imagine", top_k=10)
+    ds = RunLabelEEGDataset("sub-01")
     train_idx, val_idx, test_idx = split_indices(ds.labels, seed=42)
 """
 
@@ -43,12 +40,13 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CSV_ROOT = PROJECT_ROOT / "datasets/preprocessed"
 PKL_ROOT = PROJECT_ROOT / "datasets/ds005170-download/derivatives/preprocessed_pkl"
 CHANNELS_CSV = PROJECT_ROOT / "scripts/channels_122.csv"
@@ -122,8 +120,8 @@ def read_rows(csv_path: Path) -> list[dict]:
         return list(csv.DictReader(handle))
 
 
-class TopClassEEGDataset(Dataset):
-    """由 CSV 选 top-k 句类并加载 EEG，标签为句类。
+class RunLabelEEGDataset(Dataset):
+    """由 CSV 选类并加载 EEG，标签为试次所在 ``meta["run"]``。
 
     Args:
         subject: 被试编号，如 ``sub-01``。
@@ -193,7 +191,7 @@ class TopClassEEGDataset(Dataset):
             print(f"{rank:>4}  {name}{pad}  {class_id:>4}  {count:>5}")
 
         rows = [row for row in rows if int(row[LABEL_COLUMN]) in wanted]
-        # 与原先 top-k pkl（按类别拼接、类内 run/pos 升序）保持同一顺序
+        # 与原先 top10 pkl（按类别拼接、类内 run/pos 升序）保持同一顺序
         rows.sort(
             key=lambda row: (
                 int(row[LABEL_COLUMN]),
@@ -204,20 +202,24 @@ class TopClassEEGDataset(Dataset):
         self.rows = rows
 
         # 原始句类标签 -> 连续编号（按 type_number 升序，便于阅读与对比）
-        self.class_ids = sorted(wanted)
-        self.class_names = [class_names[class_id] for class_id in self.class_ids]
+        self.orig_class_ids = sorted(wanted)
+        self.orig_class_names = [class_names[class_id] for class_id in self.orig_class_ids]
         class_to_label = {
-            class_id: index for index, class_id in enumerate(self.class_ids)
+            class_id: index for index, class_id in enumerate(self.orig_class_ids)
         }
-        self.labels = np.asarray(
-            [class_to_label[int(row[LABEL_COLUMN])] for row in rows], dtype=np.int64
-        )
-        self.targets = torch.from_numpy(self.labels)
 
-        # ---------- 2. run 信息（仅用于诊断） ----------
+        # ---------- 2. run 标签 ----------
         raw_runs = [int(row["run"]) for row in rows]
         self.run_ids = sorted(set(raw_runs))
+        run_to_label = {run: index for index, run in enumerate(self.run_ids)}
         self.run_names = [f"run_{run:02d}" for run in self.run_ids]
+        self.labels = np.asarray([run_to_label[run] for run in raw_runs], dtype=np.int64)
+        self.targets = torch.from_numpy(self.labels)
+        self.orig_labels = np.asarray(
+            [class_to_label[int(row[LABEL_COLUMN])] for row in rows], dtype=np.int64
+        )
+
+        # 仅用于诊断，不参与训练
         self.meta = [
             {
                 "index": int(row["index"]),
@@ -305,8 +307,8 @@ class TopClassEEGDataset(Dataset):
         self.data = torch.from_numpy(data)
 
         print(
-            f"[Dataset] {subject} {label} 共 {len(self.labels)} 条 / {len(self.class_ids)} 类 / "
-            f"{len(self.run_ids)} 个 run | "
+            f"[Dataset] {subject} {label} 共 {len(self.labels)} 条 / {len(self.run_ids)} 个 run "
+            f"（来自 {len(self.orig_class_names)} 个句类）| "
             f"x {tuple(self.data.shape)} {self.data.dtype} | "
             f"channels={self.n_channels} | sfreq={SFREQ // self._decimate:g} Hz",
             flush=True,
@@ -316,7 +318,7 @@ class TopClassEEGDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, index: int):
-        """返回 ``(1, E, T)`` float32 与句类标签。"""
+        """返回 ``(1, E, T)`` float32 与 run 标签。"""
         return self.data[index].unsqueeze(0), int(self.labels[index])
 
 
@@ -326,11 +328,11 @@ def split_indices(
     test_ratio: float = 0.2,
     seed: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """按句类分层的随机划分，默认 8:2（train:test = 4:1，不设 val）。
+    """按 run 分层的随机划分，默认 8:2（train:test = 4:1，不设 val）。
 
-    逐类独立分配 test（以及可选的 val），保证每类都能分到评估样本；这比直接
-    调用 ``train_test_split(stratify=...)`` 更稳，避免最小类只有 1 条时二次
-    分层报错。``val_ratio=0`` 时 val 返回空数组。
+    逐类（每个 run）独立分配 test（以及可选的 val），保证试次极少的 run 也能
+    分到评估样本；这比直接调用 ``train_test_split(stratify=...)`` 更稳，避免
+    最少类只有 1 条时二次分层报错。``val_ratio=0`` 时 val 返回空数组。
     """
     labels = np.asarray(labels)
     if not 0 <= val_ratio < 1 or not 0 < test_ratio < 1 or val_ratio + test_ratio >= 1:
@@ -373,22 +375,23 @@ def _display_width(text: str) -> int:
 
 
 def main() -> None:
-    """冒烟检查：加载全量数据，打印类别分布、划分比例与一个 batch。"""
+    """冒烟检查：加载全量数据，打印 run 分布、划分比例与一个 batch。"""
     from torch.utils.data import DataLoader, Subset
 
-    dataset = TopClassEEGDataset("sub-01")
-    print(f"类别映射: {dict(zip(range(len(dataset.class_ids)), dataset.class_ids))}")
-
+    dataset = RunLabelEEGDataset("sub-02")
     train_idx, val_idx, test_idx = split_indices(dataset.labels)
     splits = {"train": train_idx, "val": val_idx, "test": test_idx}
     counts = {
-        split_name: np.bincount(dataset.labels[idx], minlength=len(dataset.class_ids))
+        split_name: np.bincount(dataset.labels[idx], minlength=len(dataset.run_ids))
         for split_name, idx in splits.items()
     }
 
-    rows = [f"{label} {name}" for label, name in enumerate(dataset.class_names)]
-    name_width = max(_display_width(row) for row in rows + ["类别"])
+    rows = []
+    for label, (run, run_name) in enumerate(zip(dataset.run_ids, dataset.run_names)):
+        day = dataset.meta[int(np.flatnonzero(dataset.labels == label)[0])].get("day")
+        rows.append(f"day{day} {run_name}")
 
+    name_width = max(_display_width(row) for row in rows + ["run"])
     col_width = 8
 
     def format_row(label: str, values) -> str:
@@ -396,7 +399,7 @@ def main() -> None:
         return f"{label}{pad}" + "".join(f"{value:>{col_width}}" for value in values)
 
     rule = "-" * (name_width + col_width * len(splits))
-    print(format_row(label="类别", values=list(splits)))
+    print(format_row(label="run", values=list(splits)))
     print(rule)
     for index, row in enumerate(rows):
         print(format_row(label=row, values=[counts[split_name][index] for split_name in splits]))
@@ -405,7 +408,7 @@ def main() -> None:
 
     loader = DataLoader(Subset(dataset, train_idx), batch_size=4, shuffle=True)
     x, y = next(iter(loader))
-    print(f"batch: x {tuple(x.shape)} {x.dtype} | y {y.tolist()}")
+    print(f"batch: x {tuple(x.shape)} {x.dtype} | y(run) {y.tolist()}")
 
 
 if __name__ == "__main__":
