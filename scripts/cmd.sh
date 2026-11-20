@@ -44,3 +44,14 @@ uv run outputs/collect_experiment_summary.py `
   --run-identity-run outputs/run_identity/main_8_2 `
   --loro-lodo-run outputs/loro_lodo/main_8_2 `
   --include-sweep
+
+
+# runwise 比较
+uv run plan_runwise_inductive/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --run-name main_8_2
+uv run plan_runwise_transductive/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --run-name main_8_2
+
+# 汇总
+uv run outputs/collect_runwise_paired.py `
+    --baseline-run outputs/loro_lodo/main_8_2 `
+    --inductive-run outputs/runwise_inductive/main_8_2 `
+    --transductive-run outputs/runwise_transductive/main_8_2

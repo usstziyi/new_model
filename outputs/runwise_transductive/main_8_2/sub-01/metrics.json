@@ -1,0 +1,1060 @@
+{
+  "subject": "sub-01",
+  "task": "runwise_transductive_classification",
+  "eeg_task": "imagine",
+  "top_k": 10,
+  "normalization": "runwise_transductive",
+  "transductive": true,
+  "classes": [
+    "健康和安全建议",
+    "求职和职业发展",
+    "饮食和用餐",
+    "交通和出行",
+    "询问和个人事务",
+    "教育和学习",
+    "情感和人际关系",
+    "个人行为和日常活动",
+    "工作和职场交流",
+    "产品和质量保证"
+  ],
+  "n_samples": 2459,
+  "n_features": 610,
+  "bands": {
+    "delta": [
+      1,
+      4
+    ],
+    "theta": [
+      4,
+      8
+    ],
+    "alpha": [
+      8,
+      13
+    ],
+    "beta": [
+      13,
+      30
+    ],
+    "gamma": [
+      30,
+      45
+    ]
+  },
+  "band_mode": "rel",
+  "model": "lda",
+  "sfreq": 500.0,
+  "use_64_channels": false,
+  "cv_folds": 5,
+  "protocols": {
+    "cv5": {
+      "accuracy": 0.10004066693777959,
+      "ci": [
+        0.08749399317747954,
+        0.1124063604457714
+      ],
+      "macro_f1": 0.09739254899219582,
+      "weighted_f1": 0.09918036294620226,
+      "fold_mean_accuracy": 0.10003311642077724,
+      "fold_std_accuracy": 0.011827323889199777,
+      "fold_mean_macro_f1": 0.09642028838565606,
+      "fold_std_macro_f1": 0.012985301208285007,
+      "majority_baseline_accuracy": 0.12078080520536803,
+      "n_samples": 2459,
+      "n_splits": 5,
+      "confusion_matrix": [
+        [
+          17,
+          37,
+          30,
+          18,
+          27,
+          20,
+          29,
+          23,
+          23,
+          20
+        ],
+        [
+          36,
+          39,
+          48,
+          19,
+          32,
+          21,
+          34,
+          31,
+          20,
+          17
+        ],
+        [
+          20,
+          44,
+          45,
+          15,
+          34,
+          15,
+          30,
+          33,
+          38,
+          17
+        ],
+        [
+          15,
+          28,
+          23,
+          11,
+          16,
+          13,
+          21,
+          36,
+          21,
+          24
+        ],
+        [
+          21,
+          30,
+          35,
+          25,
+          31,
+          9,
+          28,
+          23,
+          27,
+          21
+        ],
+        [
+          16,
+          22,
+          25,
+          17,
+          22,
+          22,
+          23,
+          19,
+          28,
+          15
+        ],
+        [
+          24,
+          31,
+          28,
+          16,
+          21,
+          19,
+          24,
+          42,
+          28,
+          22
+        ],
+        [
+          16,
+          36,
+          40,
+          23,
+          28,
+          18,
+          40,
+          18,
+          20,
+          19
+        ],
+        [
+          15,
+          26,
+          35,
+          18,
+          35,
+          20,
+          30,
+          25,
+          21,
+          18
+        ],
+        [
+          27,
+          41,
+          15,
+          15,
+          28,
+          13,
+          19,
+          12,
+          16,
+          18
+        ]
+      ],
+      "per_class_recall": [
+        0.06967213114754098,
+        0.13131313131313133,
+        0.15463917525773196,
+        0.052884615384615384,
+        0.124,
+        0.10526315789473684,
+        0.09411764705882353,
+        0.06976744186046512,
+        0.08641975308641975,
+        0.08823529411764706
+      ],
+      "folds": [
+        {
+          "subject": "sub-01",
+          "protocol": "cv5",
+          "split": "fold_1",
+          "n_train": 1967,
+          "n_test": 492,
+          "accuracy": 0.11382113821138211,
+          "macro_f1": 0.11341384815284153,
+          "majority_baseline_accuracy": 0.12195121951219512
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "cv5",
+          "split": "fold_2",
+          "n_train": 1967,
+          "n_test": 492,
+          "accuracy": 0.09552845528455285,
+          "macro_f1": 0.08850442963220767,
+          "majority_baseline_accuracy": 0.11991869918699187
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "cv5",
+          "split": "fold_3",
+          "n_train": 1967,
+          "n_test": 492,
+          "accuracy": 0.0975609756097561,
+          "macro_f1": 0.09464460433628999,
+          "majority_baseline_accuracy": 0.11991869918699187
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "cv5",
+          "split": "fold_4",
+          "n_train": 1967,
+          "n_test": 492,
+          "accuracy": 0.11178861788617886,
+          "macro_f1": 0.10796525904709328,
+          "majority_baseline_accuracy": 0.11991869918699187
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "cv5",
+          "split": "fold_5",
+          "n_train": 1968,
+          "n_test": 491,
+          "accuracy": 0.0814663951120163,
+          "macro_f1": 0.07757330075984777,
+          "majority_baseline_accuracy": 0.12219959266802444
+        }
+      ],
+      "permutation": null
+    },
+    "loro": {
+      "accuracy": 0.09678731191541277,
+      "ci": [
+        0.08578323449629037,
+        0.10720068073683534
+      ],
+      "macro_f1": 0.09168617313639149,
+      "weighted_f1": 0.09553410473798488,
+      "fold_mean_accuracy": 0.09824101496493366,
+      "fold_std_accuracy": 0.04131318638080132,
+      "fold_mean_macro_f1": 0.07076649463930765,
+      "fold_std_macro_f1": 0.03013593135818912,
+      "majority_baseline_accuracy": 0.03294021960146401,
+      "n_samples": 2459,
+      "n_splits": 45,
+      "confusion_matrix": [
+        [
+          18,
+          38,
+          28,
+          22,
+          28,
+          13,
+          20,
+          26,
+          29,
+          22
+        ],
+        [
+          35,
+          44,
+          35,
+          25,
+          38,
+          21,
+          31,
+          26,
+          28,
+          14
+        ],
+        [
+          26,
+          38,
+          43,
+          23,
+          29,
+          20,
+          21,
+          44,
+          38,
+          9
+        ],
+        [
+          22,
+          21,
+          29,
+          7,
+          20,
+          9,
+          22,
+          33,
+          25,
+          20
+        ],
+        [
+          19,
+          25,
+          36,
+          27,
+          31,
+          16,
+          24,
+          24,
+          24,
+          24
+        ],
+        [
+          14,
+          31,
+          31,
+          11,
+          28,
+          8,
+          21,
+          22,
+          23,
+          20
+        ],
+        [
+          25,
+          29,
+          27,
+          27,
+          29,
+          17,
+          24,
+          34,
+          23,
+          20
+        ],
+        [
+          26,
+          29,
+          40,
+          23,
+          25,
+          24,
+          28,
+          27,
+          23,
+          13
+        ],
+        [
+          22,
+          29,
+          34,
+          17,
+          30,
+          17,
+          29,
+          27,
+          20,
+          18
+        ],
+        [
+          27,
+          27,
+          24,
+          22,
+          21,
+          17,
+          21,
+          16,
+          13,
+          16
+        ]
+      ],
+      "per_class_recall": [
+        0.07377049180327869,
+        0.14814814814814814,
+        0.14776632302405499,
+        0.03365384615384615,
+        0.124,
+        0.03827751196172249,
+        0.09411764705882353,
+        0.10465116279069768,
+        0.0823045267489712,
+        0.0784313725490196
+      ],
+      "folds": [
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_01",
+          "n_train": 2418,
+          "n_test": 41,
+          "accuracy": 0.04878048780487805,
+          "macro_f1": 0.04722222222222222,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_02",
+          "n_train": 2410,
+          "n_test": 49,
+          "accuracy": 0.08163265306122448,
+          "macro_f1": 0.0457516339869281,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_03",
+          "n_train": 2371,
+          "n_test": 88,
+          "accuracy": 0.14772727272727273,
+          "macro_f1": 0.10485764235764235,
+          "majority_baseline_accuracy": 0.011363636363636364
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_04",
+          "n_train": 2371,
+          "n_test": 88,
+          "accuracy": 0.10227272727272728,
+          "macro_f1": 0.06919160626607435,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_05",
+          "n_train": 2389,
+          "n_test": 70,
+          "accuracy": 0.11428571428571428,
+          "macro_f1": 0.05014781966001478,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_06",
+          "n_train": 2378,
+          "n_test": 81,
+          "accuracy": 0.1111111111111111,
+          "macro_f1": 0.05614295614295615,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_07",
+          "n_train": 2395,
+          "n_test": 64,
+          "accuracy": 0.15625,
+          "macro_f1": 0.10427350427350426,
+          "majority_baseline_accuracy": 0.015625
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_08",
+          "n_train": 2401,
+          "n_test": 58,
+          "accuracy": 0.10344827586206896,
+          "macro_f1": 0.08494694960212201,
+          "majority_baseline_accuracy": 0.05172413793103448
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_09",
+          "n_train": 2403,
+          "n_test": 56,
+          "accuracy": 0.05357142857142857,
+          "macro_f1": 0.0255578093306288,
+          "majority_baseline_accuracy": 0.03571428571428571
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_10",
+          "n_train": 2409,
+          "n_test": 50,
+          "accuracy": 0.08,
+          "macro_f1": 0.06767676767676768,
+          "majority_baseline_accuracy": 0.06
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_11",
+          "n_train": 2407,
+          "n_test": 52,
+          "accuracy": 0.038461538461538464,
+          "macro_f1": 0.041666666666666664,
+          "majority_baseline_accuracy": 0.09615384615384616
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_12",
+          "n_train": 2417,
+          "n_test": 42,
+          "accuracy": 0.047619047619047616,
+          "macro_f1": 0.04318181818181818,
+          "majority_baseline_accuracy": 0.07142857142857142
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_13",
+          "n_train": 2403,
+          "n_test": 56,
+          "accuracy": 0.08928571428571429,
+          "macro_f1": 0.0665266106442577,
+          "majority_baseline_accuracy": 0.07142857142857142
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_14",
+          "n_train": 2381,
+          "n_test": 78,
+          "accuracy": 0.10256410256410256,
+          "macro_f1": 0.08624242424242425,
+          "majority_baseline_accuracy": 0.05128205128205128
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_15",
+          "n_train": 2377,
+          "n_test": 82,
+          "accuracy": 0.0975609756097561,
+          "macro_f1": 0.08413199703522284,
+          "majority_baseline_accuracy": 0.024390243902439025
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_16",
+          "n_train": 2381,
+          "n_test": 78,
+          "accuracy": 0.10256410256410256,
+          "macro_f1": 0.08840048840048839,
+          "majority_baseline_accuracy": 0.02564102564102564
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_17",
+          "n_train": 2379,
+          "n_test": 80,
+          "accuracy": 0.15,
+          "macro_f1": 0.11391163184641444,
+          "majority_baseline_accuracy": 0.0125
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_18",
+          "n_train": 2415,
+          "n_test": 44,
+          "accuracy": 0.09090909090909091,
+          "macro_f1": 0.07317460317460317,
+          "majority_baseline_accuracy": 0.13636363636363635
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_19",
+          "n_train": 2407,
+          "n_test": 52,
+          "accuracy": 0.11538461538461539,
+          "macro_f1": 0.09993006993006992,
+          "majority_baseline_accuracy": 0.038461538461538464
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_20",
+          "n_train": 2402,
+          "n_test": 57,
+          "accuracy": 0.08771929824561403,
+          "macro_f1": 0.07519607843137255,
+          "majority_baseline_accuracy": 0.05263157894736842
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_21",
+          "n_train": 2426,
+          "n_test": 33,
+          "accuracy": 0.06060606060606061,
+          "macro_f1": 0.05555555555555556,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_22",
+          "n_train": 2423,
+          "n_test": 36,
+          "accuracy": 0.1388888888888889,
+          "macro_f1": 0.1143859649122807,
+          "majority_baseline_accuracy": 0.027777777777777776
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_23",
+          "n_train": 2400,
+          "n_test": 59,
+          "accuracy": 0.01694915254237288,
+          "macro_f1": 0.014285714285714285,
+          "majority_baseline_accuracy": 0.1016949152542373
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_24",
+          "n_train": 2413,
+          "n_test": 46,
+          "accuracy": 0.06521739130434782,
+          "macro_f1": 0.03538461538461539,
+          "majority_baseline_accuracy": 0.17391304347826086
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_25",
+          "n_train": 2426,
+          "n_test": 33,
+          "accuracy": 0.18181818181818182,
+          "macro_f1": 0.12666666666666665,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_26",
+          "n_train": 2430,
+          "n_test": 29,
+          "accuracy": 0.1724137931034483,
+          "macro_f1": 0.12434065934065934,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_27",
+          "n_train": 2411,
+          "n_test": 48,
+          "accuracy": 0.041666666666666664,
+          "macro_f1": 0.019047619047619046,
+          "majority_baseline_accuracy": 0.041666666666666664
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_28",
+          "n_train": 2396,
+          "n_test": 63,
+          "accuracy": 0.07936507936507936,
+          "macro_f1": 0.08243107769423558,
+          "majority_baseline_accuracy": 0.07936507936507936
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_29",
+          "n_train": 2390,
+          "n_test": 69,
+          "accuracy": 0.11594202898550725,
+          "macro_f1": 0.08436868686868687,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_30",
+          "n_train": 2411,
+          "n_test": 48,
+          "accuracy": 0.0625,
+          "macro_f1": 0.03968253968253968,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_31",
+          "n_train": 2409,
+          "n_test": 50,
+          "accuracy": 0.12,
+          "macro_f1": 0.08898809523809523,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_32",
+          "n_train": 2402,
+          "n_test": 57,
+          "accuracy": 0.08771929824561403,
+          "macro_f1": 0.05743589743589743,
+          "majority_baseline_accuracy": 0.017543859649122806
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_33",
+          "n_train": 2415,
+          "n_test": 44,
+          "accuracy": 0.09090909090909091,
+          "macro_f1": 0.049760765550239235,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_34",
+          "n_train": 2400,
+          "n_test": 59,
+          "accuracy": 0.03389830508474576,
+          "macro_f1": 0.02777777777777778,
+          "majority_baseline_accuracy": 0.03389830508474576
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_35",
+          "n_train": 2413,
+          "n_test": 46,
+          "accuracy": 0.08695652173913043,
+          "macro_f1": 0.04824561403508772,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_36",
+          "n_train": 2395,
+          "n_test": 64,
+          "accuracy": 0.109375,
+          "macro_f1": 0.07144703190200566,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_37",
+          "n_train": 2403,
+          "n_test": 56,
+          "accuracy": 0.07142857142857142,
+          "macro_f1": 0.07620915032679738,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_38",
+          "n_train": 2391,
+          "n_test": 68,
+          "accuracy": 0.07352941176470588,
+          "macro_f1": 0.05213767556721716,
+          "majority_baseline_accuracy": 0.014705882352941176
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_39",
+          "n_train": 2391,
+          "n_test": 68,
+          "accuracy": 0.1323529411764706,
+          "macro_f1": 0.05789473684210526,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_40",
+          "n_train": 2423,
+          "n_test": 36,
+          "accuracy": 0.16666666666666666,
+          "macro_f1": 0.14269341769341767,
+          "majority_baseline_accuracy": 0.027777777777777776
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_41",
+          "n_train": 2428,
+          "n_test": 31,
+          "accuracy": 0.06451612903225806,
+          "macro_f1": 0.051515151515151514,
+          "majority_baseline_accuracy": 0.06451612903225806
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_42",
+          "n_train": 2420,
+          "n_test": 39,
+          "accuracy": 0.15384615384615385,
+          "macro_f1": 0.0744360902255639,
+          "majority_baseline_accuracy": 0.0
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_43",
+          "n_train": 2401,
+          "n_test": 58,
+          "accuracy": 0.06896551724137931,
+          "macro_f1": 0.05218115218115218,
+          "majority_baseline_accuracy": 0.034482758620689655
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_44",
+          "n_train": 2411,
+          "n_test": 48,
+          "accuracy": 0.10416666666666667,
+          "macro_f1": 0.08448930296756382,
+          "majority_baseline_accuracy": 0.14583333333333334
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "loro",
+          "split": "run_45",
+          "n_train": 2454,
+          "n_test": 5,
+          "accuracy": 0.2,
+          "macro_f1": 0.125,
+          "majority_baseline_accuracy": 0.2
+        }
+      ],
+      "permutation": null
+    },
+    "lodo": {
+      "accuracy": 0.08540056933712892,
+      "ci": [
+        0.0687732342007435,
+        0.09635974304068523
+      ],
+      "macro_f1": 0.0817482664562414,
+      "weighted_f1": 0.08448814031394496,
+      "fold_mean_accuracy": 0.08588549218710166,
+      "fold_std_accuracy": 0.016329160364679948,
+      "fold_mean_macro_f1": 0.07950679705696317,
+      "fold_std_macro_f1": 0.016198770292673966,
+      "majority_baseline_accuracy": 0.045953639690931275,
+      "n_samples": 2459,
+      "n_splits": 5,
+      "confusion_matrix": [
+        [
+          18,
+          35,
+          23,
+          23,
+          25,
+          18,
+          19,
+          24,
+          31,
+          28
+        ],
+        [
+          28,
+          29,
+          53,
+          34,
+          29,
+          14,
+          40,
+          22,
+          27,
+          21
+        ],
+        [
+          31,
+          44,
+          45,
+          20,
+          27,
+          19,
+          22,
+          36,
+          36,
+          11
+        ],
+        [
+          16,
+          33,
+          29,
+          12,
+          23,
+          14,
+          25,
+          20,
+          25,
+          11
+        ],
+        [
+          28,
+          28,
+          25,
+          27,
+          28,
+          20,
+          23,
+          27,
+          20,
+          24
+        ],
+        [
+          16,
+          30,
+          31,
+          11,
+          26,
+          12,
+          21,
+          23,
+          19,
+          20
+        ],
+        [
+          27,
+          19,
+          33,
+          24,
+          27,
+          19,
+          23,
+          35,
+          32,
+          16
+        ],
+        [
+          19,
+          36,
+          38,
+          23,
+          26,
+          26,
+          37,
+          23,
+          17,
+          13
+        ],
+        [
+          30,
+          30,
+          33,
+          22,
+          22,
+          21,
+          29,
+          29,
+          10,
+          17
+        ],
+        [
+          19,
+          37,
+          18,
+          9,
+          17,
+          22,
+          27,
+          23,
+          22,
+          10
+        ]
+      ],
+      "per_class_recall": [
+        0.07377049180327869,
+        0.09764309764309764,
+        0.15463917525773196,
+        0.057692307692307696,
+        0.112,
+        0.05741626794258373,
+        0.09019607843137255,
+        0.08914728682170543,
+        0.0411522633744856,
+        0.049019607843137254
+      ],
+      "folds": [
+        {
+          "subject": "sub-01",
+          "protocol": "lodo",
+          "split": "day_01",
+          "n_train": 1864,
+          "n_test": 595,
+          "accuracy": 0.08739495798319327,
+          "macro_f1": 0.08307690578770213,
+          "majority_baseline_accuracy": 0.018487394957983194
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "lodo",
+          "split": "day_02",
+          "n_train": 1897,
+          "n_test": 562,
+          "accuracy": 0.09608540925266904,
+          "macro_f1": 0.09299505730070103,
+          "majority_baseline_accuracy": 0.08718861209964412
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "lodo",
+          "split": "day_03",
+          "n_train": 2066,
+          "n_test": 393,
+          "accuracy": 0.09414758269720101,
+          "macro_f1": 0.08360163566138647,
+          "majority_baseline_accuracy": 0.07888040712468193
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "lodo",
+          "split": "day_04",
+          "n_train": 1959,
+          "n_test": 500,
+          "accuracy": 0.054,
+          "macro_f1": 0.04799188918638357,
+          "majority_baseline_accuracy": 0.016
+        },
+        {
+          "subject": "sub-01",
+          "protocol": "lodo",
+          "split": "day_05",
+          "n_train": 2050,
+          "n_test": 409,
+          "accuracy": 0.097799511002445,
+          "macro_f1": 0.08986849734864263,
+          "majority_baseline_accuracy": 0.034229828850855744
+        }
+      ],
+      "permutation": null
+    }
+  }
+}
