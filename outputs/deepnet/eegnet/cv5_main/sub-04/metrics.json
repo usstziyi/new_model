@@ -1,0 +1,259 @@
+{
+  "subject": "sub-04",
+  "task": "eegnet_deepnet_baseline",
+  "eeg_task": "imagine",
+  "model": "EEGNet",
+  "dataset": {
+    "n_samples": 2454,
+    "n_channels": 122,
+    "n_times": 1651,
+    "sfreq": 500.0,
+    "n_runs": 45
+  },
+  "model_config": {
+    "f1": 8,
+    "d": 2,
+    "f2": 16,
+    "kernel_seconds": 0.5,
+    "separable_seconds": 0.125,
+    "kernel_length_samples": 251,
+    "separable_kernel_samples": 63,
+    "dropout": 0.25,
+    "dropout2": 0.5,
+    "n_params": 13474
+  },
+  "training": {
+    "epochs": 30,
+    "batch_size": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "seed": 42
+  },
+  "protocols": {
+    "cv5": {
+      "class_names": [
+        "健康和安全建议",
+        "求职和职业发展",
+        "饮食和用餐",
+        "交通和出行",
+        "询问和个人事务",
+        "教育和学习",
+        "情感和人际关系",
+        "个人行为和日常活动",
+        "工作和职场交流",
+        "产品和质量保证"
+      ],
+      "accuracy": 0.16299918500407498,
+      "ci": [
+        0.1351663319800873,
+        0.19081787624156146
+      ],
+      "macro_f1": 0.14886707932786908,
+      "weighted_f1": 0.15562087607612163,
+      "fold_mean_accuracy": 0.1630001246934619,
+      "fold_std_accuracy": 0.016454207121552503,
+      "fold_mean_macro_f1": 0.14873226070026974,
+      "fold_std_macro_f1": 0.015081056212478704,
+      "majority_baseline_accuracy": 0.12591687041564792,
+      "n_samples": 2454,
+      "n_splits": 5,
+      "confusion_matrix": [
+        [
+          21,
+          37,
+          43,
+          13,
+          22,
+          29,
+          21,
+          24,
+          20,
+          11
+        ],
+        [
+          18,
+          111,
+          13,
+          10,
+          21,
+          23,
+          17,
+          21,
+          63,
+          12
+        ],
+        [
+          24,
+          17,
+          75,
+          22,
+          30,
+          23,
+          31,
+          35,
+          9,
+          21
+        ],
+        [
+          18,
+          17,
+          34,
+          31,
+          21,
+          19,
+          18,
+          21,
+          13,
+          12
+        ],
+        [
+          14,
+          36,
+          44,
+          19,
+          29,
+          26,
+          24,
+          29,
+          12,
+          13
+        ],
+        [
+          29,
+          40,
+          25,
+          11,
+          19,
+          26,
+          28,
+          11,
+          20,
+          13
+        ],
+        [
+          26,
+          33,
+          40,
+          13,
+          32,
+          23,
+          31,
+          14,
+          14,
+          25
+        ],
+        [
+          16,
+          35,
+          45,
+          27,
+          31,
+          14,
+          27,
+          19,
+          27,
+          12
+        ],
+        [
+          15,
+          75,
+          16,
+          6,
+          15,
+          16,
+          13,
+          23,
+          47,
+          15
+        ],
+        [
+          17,
+          27,
+          40,
+          24,
+          17,
+          17,
+          15,
+          10,
+          23,
+          10
+        ]
+      ],
+      "per_class_recall": [
+        0.08713692946058091,
+        0.3592233009708738,
+        0.2613240418118467,
+        0.15196078431372548,
+        0.11788617886178862,
+        0.11711711711711711,
+        0.12350597609561753,
+        0.07509881422924901,
+        0.1950207468879668,
+        0.05
+      ],
+      "folds": [
+        {
+          "subject": "sub-04",
+          "protocol": "cv5",
+          "split": "fold_1",
+          "n_train": 1963,
+          "n_test": 491,
+          "accuracy": 0.15885947046843177,
+          "macro_f1": 0.14941426352981174,
+          "majority_baseline_accuracy": 0.12423625254582485,
+          "train_loss": 1.4570991304293617,
+          "train_accuracy": 0.5022924095771778
+        },
+        {
+          "subject": "sub-04",
+          "protocol": "cv5",
+          "split": "fold_2",
+          "n_train": 1963,
+          "n_test": 491,
+          "accuracy": 0.13441955193482688,
+          "macro_f1": 0.12087220346958978,
+          "majority_baseline_accuracy": 0.12627291242362526,
+          "train_loss": 1.4929933301417486,
+          "train_accuracy": 0.5038206826286297
+        },
+        {
+          "subject": "sub-04",
+          "protocol": "cv5",
+          "split": "fold_3",
+          "n_train": 1963,
+          "n_test": 491,
+          "accuracy": 0.17311608961303462,
+          "macro_f1": 0.1567491849579588,
+          "majority_baseline_accuracy": 0.12627291242362526,
+          "train_loss": 1.4349122040136943,
+          "train_accuracy": 0.5170657157412124
+        },
+        {
+          "subject": "sub-04",
+          "protocol": "cv5",
+          "split": "fold_4",
+          "n_train": 1963,
+          "n_test": 491,
+          "accuracy": 0.18329938900203666,
+          "macro_f1": 0.16581941743941658,
+          "majority_baseline_accuracy": 0.12627291242362526,
+          "train_loss": 1.476808437023367,
+          "train_accuracy": 0.4966887417218543
+        },
+        {
+          "subject": "sub-04",
+          "protocol": "cv5",
+          "split": "fold_5",
+          "n_train": 1964,
+          "n_test": 490,
+          "accuracy": 0.1653061224489796,
+          "macro_f1": 0.15080623410457167,
+          "majority_baseline_accuracy": 0.12653061224489795,
+          "train_loss": 1.5068023112543731,
+          "train_accuracy": 0.4694501018329939
+        }
+      ],
+      "permutation": null
+    }
+  }
+}
