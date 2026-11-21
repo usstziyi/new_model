@@ -53,3 +53,34 @@ uv run experiments/mitigation/runwise_transductive/train.py --subject sub-01 sub
 
 # 汇总
 uv run outputs/collect_runwise_paired.py
+
+
+# deepnet
+# eegnet
+# 3) 5 名被试 cv5
+uv run experiments/deepnet/eegnet/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol cv5 --run-name cv5_eegnet
+
+# 4) 5 名被试，cv5 + LORO + LODO（论文主结果）
+uv run experiments/deepnet/eegnet/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol cv5 loro lodo --run-name main_eegnet
+
+# 5) 250 Hz 版本
+uv run experiments/deepnet/eegnet/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --target-sfreq 250 --protocol cv5 loro lodo --run-name main_eegnet_250
+
+# 6) run 身份负对照（需完整 top-k）
+uv run experiments/deepnet/eegnet/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol runid --run-name runid_eegnet
+
+
+
+
+# freqcnn
+# 3) 5 名被试 cv5
+uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol cv5 --run-name cv5_freqcnn
+
+# 4) 5 名被试，cv5 + LORO + LODO
+uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol cv5 loro lodo --run-name main_freqcnn
+
+# 5) 250 Hz 版本
+uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --target-sfreq 250 --protocol cv5 loro lodo --run-name main_freqcnn_250
+
+# 6) run 身份负对照
+uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol runid --run-name runid_freqcnn
