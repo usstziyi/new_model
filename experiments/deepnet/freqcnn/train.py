@@ -40,6 +40,7 @@ import argparse
 import csv
 import json
 import random
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -276,6 +277,7 @@ def train_one_fold(
     num_classes: int,
     device: torch.device,
     fold_seed: int,
+    log_prefix: str = "",
 ) -> tuple[np.ndarray, float, float]:
     """训练一个划分并返回 ``(test_pred, final_train_loss, final_train_acc)``。"""
     set_seed(fold_seed)
@@ -315,6 +317,13 @@ def train_one_fold(
         optimizer, T_max=max(1, args.epochs)
     )
     criterion = nn.CrossEntropyLoss()
+    prefix = f"{log_prefix} " if log_prefix else ""
+    total_steps = len(train_loader)
+    print(
+        f"{prefix}start | train={len(train_idx)} test={len(test_idx)} "
+        f"epochs={args.epochs} steps/epoch={total_steps}",
+        flush=True,
+    )
 
     last_loss = 0.0
     last_acc = 0.0
@@ -323,7 +332,8 @@ def train_one_fold(
         total_loss = 0.0
         correct = 0
         total = 0
-        for x, y in train_loader:
+        epoch_start = time.perf_counter()
+        for step, (x, y) in enumerate(train_loader, start=1):
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
@@ -333,18 +343,29 @@ def train_one_fold(
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
-            total_loss += float(loss.item()) * len(y)
-            correct += int((logits.argmax(dim=1) == y).sum().item())
+            batch_pred = logits.argmax(dim=1)
+            batch_correct = int((batch_pred == y).sum().item())
+            batch_loss = float(loss.item())
+            total_loss += batch_loss * len(y)
+            correct += batch_correct
             total += len(y)
+            print(
+                f"{prefix}epoch {epoch + 1:03d}/{args.epochs} "
+                f"step {step:03d}/{total_steps:03d} "
+                f"loss={batch_loss:.4f} acc={batch_correct / max(len(y), 1):.4f} "
+                f"lr={float(optimizer.param_groups[0]['lr']):.2e}",
+                flush=True,
+            )
         scheduler.step()
         last_loss = total_loss / max(total, 1)
         last_acc = correct / max(total, 1)
-        if args.verbose:
-            print(
-                f"      epoch {epoch + 1:03d}/{args.epochs} "
-                f"loss={last_loss:.4f} acc={last_acc:.4f}",
-                flush=True,
-            )
+        print(
+            f"{prefix}epoch {epoch + 1:03d}/{args.epochs} done | "
+            f"train_loss={last_loss:.4f} train_acc={last_acc:.4f} | "
+            f"lr={float(optimizer.param_groups[0]['lr']):.2e} | "
+            f"elapsed={time.perf_counter() - epoch_start:.1f}s",
+            flush=True,
+        )
 
     model.eval()
     predictions: list[np.ndarray] = []
@@ -391,6 +412,7 @@ def evaluate_protocol(
             num_classes,
             device,
             fold_seed=args.seed + fold_index,
+            log_prefix=f"[{args.subject}][{protocol}][{name}]",
         )
         y_true = task_labels[test_idx]
         majority = int(
@@ -461,6 +483,7 @@ def evaluate_protocol(
 
 def permutation_null(
     args,
+    protocol: str,
     dataset: FreqCNNDataset,
     task_labels: np.ndarray,
     splits: list[tuple[str, np.ndarray, np.ndarray]],
@@ -483,6 +506,7 @@ def permutation_null(
                 num_classes,
                 device,
                 fold_seed=args.seed + fold_index,
+                log_prefix=f"[{args.subject}][{protocol}][perm {perm_index + 1}]",
             )
             correct += int(np.sum(pred == shuffled[test_idx]))
         null[perm_index] = correct / len(shuffled)
@@ -613,7 +637,7 @@ def run_subject(
         permutation = None
         if args.permutations > 0:
             null = permutation_null(
-                args, dataset, task_labels, splits, num_classes, device
+                args, protocol, dataset, task_labels, splits, num_classes, device
             )
             observed = float(result["accuracy"])
             permutation = {
@@ -789,7 +813,6 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 工作进程数")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出根目录")
     parser.add_argument("--run-name", default=None, help="本次实验目录名，默认按时间命名")
-    parser.add_argument("--verbose", action="store_true", help="逐 epoch 打印训练损失")
     return parser.parse_args()
 
 
