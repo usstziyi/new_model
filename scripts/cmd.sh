@@ -77,7 +77,7 @@ uv run experiments/deepnet/eegnet/train.py --subject sub-01 sub-02 sub-03 sub-04
 uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol cv5 --run-name cv5_freqcnn
 
 # 4) 5 名被试，cv5 + LORO + LODO
-uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol cv5 loro lodo --run-name main_freqcnn
+uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --protocol cv5 loro lodo --run-name main_freqcnn 
 
 # 5) 250 Hz 版本
 uv run experiments/deepnet/freqcnn/train.py --subject sub-01 sub-02 sub-03 sub-04 sub-05 --target-sfreq 250 --protocol cv5 loro lodo --run-name main_freqcnn_250
