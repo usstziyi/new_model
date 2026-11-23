@@ -1,0 +1,388 @@
+[Device] cuda
+
+===== 被试 sub-01 =====
+[CSV] D:\AI\trae_work\new_model\datasets\preprocessed\sub-01_imagine.csv 共 6140 条，选出 10 类：
+   1. type=10  n= 297  求职和职业发展
+   2. type=13  n= 291  饮食和用餐
+   3. type=26  n= 258  个人行为和日常活动
+   4. type=24  n= 255  情感和人际关系
+   5. type=19  n= 250  询问和个人事务
+   6. type= 2  n= 244  健康和安全建议
+   7. type=31  n= 243  工作和职场交流
+   8. type=21  n= 209  教育和学习
+   9. type=14  n= 208  交通和出行
+  10. type=32  n= 204  产品和质量保证
+[Load] run-01 共 185 条，选中 41 条
+[Load] run-02 共 126 条，选中 49 条
+[Load] run-03 共 146 条，选中 88 条
+[Load] run-04 共 143 条，选中 88 条
+[Load] run-05 共 136 条，选中 70 条
+[Load] run-06 共 134 条，选中 81 条
+[Load] run-07 共 140 条，选中 64 条
+[Load] run-08 共 146 条，选中 58 条
+[Load] run-09 共 141 条，选中 56 条
+[Load] run-10 共 130 条，选中 50 条
+[Load] run-11 共 131 条，选中 52 条
+[Load] run-12 共 140 条，选中 42 条
+[Load] run-13 共 149 条，选中 56 条
+[Load] run-14 共 126 条，选中 78 条
+[Load] run-15 共 148 条，选中 82 条
+[Load] run-16 共 140 条，选中 78 条
+[Load] run-17 共 141 条，选中 80 条
+[Load] run-18 共 145 条，选中 44 条
+[Load] run-19 共 138 条，选中 52 条
+[Load] run-20 共 138 条，选中 57 条
+[Load] run-21 共 145 条，选中 33 条
+[Load] run-22 共 145 条，选中 36 条
+[Load] run-23 共 126 条，选中 59 条
+[Load] run-24 共 150 条，选中 46 条
+[Load] run-25 共 131 条，选中 33 条
+[Load] run-26 共 132 条，选中 29 条
+[Load] run-27 共 150 条，选中 48 条
+[Load] run-28 共 134 条，选中 63 条
+[Load] run-29 共 150 条，选中 69 条
+[Load] run-30 共 144 条，选中 48 条
+[Load] run-31 共 142 条，选中 50 条
+[Load] run-32 共 137 条，选中 57 条
+[Load] run-33 共 144 条，选中 44 条
+[Load] run-34 共 135 条，选中 59 条
+[Load] run-35 共 149 条，选中 46 条
+[Load] run-36 共 149 条，选中 64 条
+[Load] run-37 共 146 条，选中 56 条
+[Load] run-38 共 139 条，选中 68 条
+[Load] run-39 共 149 条，选中 68 条
+[Load] run-40 共 128 条，选中 36 条
+[Load] run-41 共 141 条，选中 31 条
+[Load] run-42 共 138 条，选中 39 条
+[Load] run-43 共 149 条，选中 58 条
+[Load] run-44 共 139 条，选中 48 条
+[Load] run-45 共 28 条，选中 5 条
+[Dataset] sub-01 imagine 共 2459 条 / 10 类 / 45 个 run | x (2459, 122, 1651) torch.float32 | channels=122 | sfreq=500 Hz
+[Split] seed=42 train=1966 test=493
+[Train] EEGNet 30 epoch，仅用训练集
+[Features] 提取全部试次的倒数第二层特征
+[Features] x (2459, 816)
+[probe_all_run] acc=0.2407 ± 0.0254 | chance=0.0222 | macro_f1=0.2194 | n=2459 类数=45
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\model_selection\_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=2.
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+[probe_test_run] acc=0.1197 ± 0.0104 | chance=0.0222 | macro_f1=0.0936 | n=493
+[probe_test_class] acc=0.1379 ± 0.0237 | chance=0.1000 | macro_f1=0.1325 | n=493
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\run_probe\main_probe\sub-01\probe_summary_sub-01.csv
+
+===== 被试 sub-02 =====
+[CSV] D:\AI\trae_work\new_model\datasets\preprocessed\sub-02_imagine.csv 共 6288 条，选出 10 类：
+   1. type=10  n= 315  求职和职业发展
+   2. type=13  n= 288  饮食和用餐
+   3. type=24  n= 264  情感和人际关系
+   4. type= 2  n= 257  健康和安全建议
+   5. type=26  n= 256  个人行为和日常活动
+   6. type=31  n= 253  工作和职场交流
+   7. type=19  n= 251  询问和个人事务
+   8. type=21  n= 224  教育和学习
+   9. type=14  n= 210  交通和出行
+  10. type=32  n= 206  产品和质量保证
+[Load] run-01 共 174 条，选中 36 条
+[Load] run-02 共 147 条，选中 55 条
+[Load] run-03 共 150 条，选中 91 条
+[Load] run-04 共 147 条，选中 92 条
+[Load] run-05 共 149 条，选中 76 条
+[Load] run-06 共 150 条，选中 92 条
+[Load] run-07 共 150 条，选中 71 条
+[Load] run-08 共 140 条，选中 55 条
+[Load] run-09 共 133 条，选中 50 条
+[Load] run-10 共 150 条，选中 56 条
+[Load] run-11 共 147 条，选中 57 条
+[Load] run-12 共 150 条，选中 43 条
+[Load] run-13 共 150 条，选中 56 条
+[Load] run-14 共 146 条，选中 90 条
+[Load] run-15 共 138 条，选中 78 条
+[Load] run-16 共 143 条，选中 79 条
+[Load] run-17 共 145 条，选中 81 条
+[Load] run-18 共 150 条，选中 45 条
+[Load] run-19 共 149 条，选中 55 条
+[Load] run-20 共 146 条，选中 59 条
+[Load] run-21 共 146 条，选中 33 条
+[Load] run-22 共 98 条，选中 26 条
+[Load] run-23 共 147 条，选中 70 条
+[Load] run-24 共 148 条，选中 45 条
+[Load] run-25 共 138 条，选中 33 条
+[Load] run-26 共 134 条，选中 33 条
+[Load] run-27 共 150 条，选中 48 条
+[Load] run-28 共 146 条，选中 70 条
+[Load] run-29 共 107 条，选中 47 条
+[Load] run-30 共 150 条，选中 50 条
+[Load] run-31 共 136 条，选中 48 条
+[Load] run-32 共 143 条，选中 58 条
+[Load] run-33 共 149 条，选中 43 条
+[Load] run-34 共 149 条，选中 61 条
+[Load] run-35 共 142 条，选中 46 条
+[Load] run-36 共 137 条，选中 60 条
+[Load] run-37 共 143 条，选中 57 条
+[Load] run-38 共 150 条，选中 73 条
+[Load] run-39 共 149 条，选中 69 条
+[Load] run-40 共 150 条，选中 46 条
+[Load] run-41 共 150 条，选中 33 条
+[Load] run-42 共 149 条，选中 45 条
+[Load] run-43 共 150 条，选中 58 条
+[Load] run-44 共 149 条，选中 50 条
+[Load] run-45 共 31 条，选中 5 条
+[Dataset] sub-02 imagine 共 2524 条 / 10 类 / 45 个 run | x (2524, 122, 1651) torch.float32 | channels=122 | sfreq=500 Hz
+[Split] seed=42 train=2019 test=505
+[Train] EEGNet 30 epoch，仅用训练集
+[Features] 提取全部试次的倒数第二层特征
+[Features] x (2524, 816)
+[probe_all_run] acc=0.4140 ± 0.0174 | chance=0.0222 | macro_f1=0.3863 | n=2524 类数=45
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\model_selection\_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=2.
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+[probe_test_run] acc=0.1505 ± 0.0082 | chance=0.0222 | macro_f1=0.0861 | n=505
+[probe_test_class] acc=0.1782 ± 0.0243 | chance=0.1000 | macro_f1=0.1597 | n=505
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\run_probe\main_probe\sub-02\probe_summary_sub-02.csv
+
+===== 被试 sub-03 =====
+[CSV] D:\AI\trae_work\new_model\datasets\preprocessed\sub-03_imagine.csv 共 5066 条，选出 10 类：
+   1. type=10  n= 265  求职和职业发展
+   2. type=13  n= 229  饮食和用餐
+   3. type=31  n= 229  工作和职场交流
+   4. type=26  n= 213  个人行为和日常活动
+   5. type= 2  n= 212  健康和安全建议
+   6. type=24  n= 207  情感和人际关系
+   7. type=19  n= 191  询问和个人事务
+   8. type=21  n= 185  教育和学习
+   9. type=32  n= 173  产品和质量保证
+  10. type=14  n= 172  交通和出行
+[Load] run-01 共 108 条，选中 24 条
+[Load] run-02 共 132 条，选中 48 条
+[Load] run-03 共 129 条，选中 78 条
+[Load] run-04 共 120 条，选中 77 条
+[Load] run-05 共 144 条，选中 75 条
+[Load] run-06 共 131 条，选中 82 条
+[Load] run-07 共 138 条，选中 66 条
+[Load] run-08 共 141 条，选中 55 条
+[Load] run-09 共 141 条，选中 55 条
+[Load] run-10 共 120 条，选中 46 条
+[Load] run-11 共 137 条，选中 54 条
+[Load] run-12 共 129 条，选中 37 条
+[Load] run-13 共 131 条，选中 49 条
+[Load] run-14 共 139 条，选中 87 条
+[Load] run-15 共 127 条，选中 66 条
+[Load] run-16 共 141 条，选中 80 条
+[Load] run-17 共 120 条，选中 71 条
+[Load] run-18 共 82 条，选中 27 条
+[Load] run-19 共 124 条，选中 45 条
+[Load] run-20 共 142 条，选中 59 条
+[Load] run-21 共 83 条，选中 17 条
+[Load] run-22 共 121 条，选中 30 条
+[Load] run-23 共 138 条，选中 64 条
+[Load] run-24 共 81 条，选中 25 条
+[Load] run-25 共 99 条，选中 22 条
+[Load] run-26 共 113 条，选中 26 条
+[Load] run-27 共 99 条，选中 31 条
+[Load] run-28 共 57 条，选中 28 条
+[Load] run-29 共 104 条，选中 45 条
+[Load] run-30 共 93 条，选中 30 条
+[Load] run-31 共 134 条，选中 48 条
+[Load] run-32 共 141 条，选中 58 条
+[Load] run-33 共 136 条，选中 40 条
+[Load] run-34 共 134 条，选中 57 条
+[Load] run-35 共 136 条，选中 41 条
+[Load] run-36 共 110 条，选中 45 条
+[Load] run-37 共 83 条，选中 30 条
+[Load] run-38 共 137 条，选中 66 条
+[Load] run-39 共 101 条，选中 45 条
+[Load] run-40 共 72 条，选中 22 条
+[Load] run-41 共 91 条，选中 17 条
+[Load] run-42 共 85 条，选中 26 条
+[Load] run-43 共 142 条，选中 59 条
+[Load] run-44 共 40 条，选中 19 条
+[Load] run-45 共 26 条，选中 4 条
+[Dataset] sub-03 imagine 共 2076 条 / 10 类 / 45 个 run | x (2076, 122, 1651) torch.float32 | channels=122 | sfreq=500 Hz
+[Split] seed=42 train=1661 test=415
+[Train] EEGNet 30 epoch，仅用训练集
+[Features] 提取全部试次的倒数第二层特征
+[Features] x (2076, 816)
+[probe_all_run] acc=0.2803 ± 0.0135 | chance=0.0222 | macro_f1=0.2307 | n=2076 类数=45
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\model_selection\_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=2.
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+[probe_test_run] acc=0.1398 ± 0.0093 | chance=0.0222 | macro_f1=0.0696 | n=415
+[probe_test_class] acc=0.1518 ± 0.0346 | chance=0.1000 | macro_f1=0.1375 | n=415
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\run_probe\main_probe\sub-03\probe_summary_sub-03.csv
+
+===== 被试 sub-04 =====
+[CSV] D:\AI\trae_work\new_model\datasets\preprocessed\sub-04_imagine.csv 共 6136 条，选出 10 类：
+   1. type=10  n= 309  求职和职业发展
+   2. type=13  n= 287  饮食和用餐
+   3. type=26  n= 253  个人行为和日常活动
+   4. type=24  n= 251  情感和人际关系
+   5. type=19  n= 246  询问和个人事务
+   6. type= 2  n= 241  健康和安全建议
+   7. type=31  n= 241  工作和职场交流
+   8. type=21  n= 222  教育和学习
+   9. type=14  n= 204  交通和出行
+  10. type=32  n= 200  产品和质量保证
+[Load] run-01 共 154 条，选中 32 条
+[Load] run-02 共 147 条，选中 55 条
+[Load] run-03 共 141 条，选中 84 条
+[Load] run-04 共 147 条，选中 90 条
+[Load] run-05 共 148 条，选中 76 条
+[Load] run-06 共 150 条，选中 92 条
+[Load] run-07 共 139 条，选中 65 条
+[Load] run-08 共 138 条，选中 51 条
+[Load] run-09 共 145 条，选中 56 条
+[Load] run-10 共 148 条，选中 55 条
+[Load] run-11 共 141 条，选中 55 条
+[Load] run-12 共 150 条，选中 43 条
+[Load] run-13 共 144 条，选中 52 条
+[Load] run-14 共 149 条，选中 92 条
+[Load] run-15 共 139 条，选中 76 条
+[Load] run-16 共 145 条，选中 82 条
+[Load] run-17 共 148 条，选中 84 条
+[Load] run-18 共 146 条，选中 44 条
+[Load] run-19 共 150 条，选中 55 条
+[Load] run-20 共 141 条，选中 58 条
+[Load] run-21 共 145 条，选中 32 条
+[Load] run-22 共 104 条，选中 26 条
+[Load] run-23 共 112 条，选中 53 条
+[Load] run-24 共 141 条，选中 41 条
+[Load] run-25 共 137 条，选中 36 条
+[Load] run-26 共 147 条，选中 32 条
+[Load] run-27 共 144 条，选中 45 条
+[Load] run-28 共 148 条，选中 71 条
+[Load] run-29 共 133 条，选中 59 条
+[Load] run-30 共 136 条，选中 46 条
+[Load] run-31 共 133 条，选中 48 条
+[Load] run-32 共 139 条，选中 59 条
+[Load] run-33 共 149 条，选中 44 条
+[Load] run-34 共 139 条，选中 57 条
+[Load] run-35 共 146 条，选中 46 条
+[Load] run-36 共 149 条，选中 63 条
+[Load] run-37 共 133 条，选中 51 条
+[Load] run-38 共 122 条，选中 59 条
+[Load] run-39 共 142 条，选中 68 条
+[Load] run-40 共 128 条，选中 40 条
+[Load] run-41 共 145 条，选中 32 条
+[Load] run-42 共 149 条，选中 45 条
+[Load] run-43 共 134 条，选中 52 条
+[Load] run-44 共 145 条，选中 47 条
+[Load] run-45 共 31 条，选中 5 条
+[Dataset] sub-04 imagine 共 2454 条 / 10 类 / 45 个 run | x (2454, 122, 1651) torch.float32 | channels=122 | sfreq=500 Hz
+[Split] seed=42 train=1964 test=490
+[Train] EEGNet 30 epoch，仅用训练集
+[Features] 提取全部试次的倒数第二层特征
+[Features] x (2454, 816)
+[probe_all_run] acc=0.2319 ± 0.0218 | chance=0.0222 | macro_f1=0.2023 | n=2454 类数=45
+[probe_test_run] acc=0.1490 ± 0.0251 | chance=0.0222 | macro_f1=0.0821 | n=490
+[probe_test_class] acc=0.1306 ± 0.0236 | chance=0.1000 | macro_f1=0.1199 | n=490
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\run_probe\main_probe\sub-04\probe_summary_sub-04.csv
+
+===== 被试 sub-05 =====
+[CSV] D:\AI\trae_work\new_model\datasets\preprocessed\sub-05_imagine.csv 共 5254 条，选出 10 类：
+   1. type=10  n= 268  求职和职业发展
+   2. type=13  n= 243  饮食和用餐
+   3. type=26  n= 230  个人行为和日常活动
+   4. type=24  n= 219  情感和人际关系
+   5. type= 2  n= 215  健康和安全建议
+   6. type=31  n= 210  工作和职场交流
+   7. type=19  n= 202  询问和个人事务
+   8. type=21  n= 188  教育和学习
+   9. type=32  n= 183  产品和质量保证
+  10. type=30  n= 176  设备故障和环境问题
+[Load] run-01 共 131 条，选中 25 条
+[Load] run-02 共 139 条，选中 52 条
+[Load] run-03 共 140 条，选中 94 条
+[Load] run-04 共 121 条，选中 78 条
+[Load] run-05 共 124 条，选中 67 条
+[Load] run-06 共 127 条，选中 79 条
+[Load] run-07 共 112 条，选中 55 条
+[Load] run-08 共 136 条，选中 56 条
+[Load] run-09 共 118 条，选中 53 条
+[Load] run-10 共 130 条，选中 58 条
+[Load] run-12 共 126 条，选中 43 条
+[Load] run-13 共 114 条，选中 42 条
+[Load] run-14 共 124 条，选中 72 条
+[Load] run-15 共 126 条，选中 63 条
+[Load] run-16 共 139 条，选中 81 条
+[Load] run-17 共 128 条，选中 78 条
+[Load] run-18 共 112 条，选中 36 条
+[Load] run-19 共 135 条，选中 55 条
+[Load] run-20 共 150 条，选中 60 条
+[Load] run-21 共 117 条，选中 25 条
+[Load] run-22 共 90 条，选中 14 条
+[Load] run-23 共 122 条，选中 64 条
+[Load] run-24 共 132 条，选中 42 条
+[Load] run-25 共 110 条，选中 29 条
+[Load] run-26 共 90 条，选中 21 条
+[Load] run-27 共 128 条，选中 47 条
+[Load] run-28 共 129 条，选中 57 条
+[Load] run-29 共 139 条，选中 65 条
+[Load] run-30 共 118 条，选中 40 条
+[Load] run-31 共 114 条，选中 34 条
+[Load] run-32 共 145 条，选中 46 条
+[Load] run-33 共 137 条，选中 34 条
+[Load] run-34 共 75 条，选中 28 条
+[Load] run-35 共 113 条，选中 46 条
+[Load] run-36 共 80 条，选中 34 条
+[Load] run-37 共 118 条，选中 39 条
+[Load] run-38 共 114 条，选中 45 条
+[Load] run-39 共 114 条，选中 51 条
+[Load] run-40 共 135 条，选中 39 条
+[Load] run-41 共 150 条，选中 39 条
+[Load] run-42 共 136 条，选中 39 条
+[Load] run-43 共 124 条，选中 58 条
+[Load] run-44 共 139 条，选中 48 条
+[Load] run-45 共 24 条，选中 3 条
+[Dataset] sub-05 imagine 共 2134 条 / 10 类 / 44 个 run | x (2134, 122, 1651) torch.float32 | channels=122 | sfreq=500 Hz
+[Split] seed=42 train=1706 test=428
+[Train] EEGNet 30 epoch，仅用训练集
+[Features] 提取全部试次的倒数第二层特征
+[Features] x (2134, 816)
+[probe_all_run] acc=0.2306 ± 0.0150 | chance=0.0227 | macro_f1=0.1872 | n=2134 类数=44
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\model_selection\_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=2.
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_shrunk_covariance.py:349: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+D:\AI\trae_work\new_model\.venv\Lib\site-packages\sklearn\covariance\_empirical_covariance.py:100: UserWarning: Only one sample available. You may want to reshape your data array
+  warnings.warn(
+[probe_test_run] acc=0.0794 ± 0.0047 | chance=0.0227 | macro_f1=0.0518 | n=428
+[probe_test_class] acc=0.1098 ± 0.0259 | chance=0.1000 | macro_f1=0.1033 | n=428
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\run_probe\main_probe\sub-05\probe_summary_sub-05.csv
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\run_probe\main_probe\probe_all.csv

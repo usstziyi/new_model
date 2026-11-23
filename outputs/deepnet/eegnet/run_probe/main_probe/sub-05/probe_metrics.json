@@ -1,0 +1,74 @@
+{
+  "subject": "sub-05",
+  "task": "eegnet_run_probe",
+  "eeg_task": "imagine",
+  "dataset": {
+    "n_samples": 2134,
+    "n_channels": 122,
+    "n_times": 1651,
+    "sfreq": 500.0,
+    "n_runs": 44,
+    "n_classes": 10
+  },
+  "training": {
+    "epochs": 30,
+    "batch_size": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "seed": 42,
+    "split_seed": 42,
+    "n_train": 1706,
+    "n_test": 428,
+    "n_params": 13474
+  },
+  "probes": {
+    "probe_all_run": {
+      "subject": "sub-05",
+      "probe": "probe_all_run",
+      "n_samples": 2134,
+      "n_classes": 44,
+      "n_folds": 3,
+      "n_features": 816,
+      "accuracy": 0.23055295220243674,
+      "accuracy_std": 0.015041198523663767,
+      "macro_f1": 0.18717202948051917,
+      "chance": 0.022727272727272728,
+      "majority_baseline": 0.044048734770384255,
+      "epochs": 30,
+      "n_params": 13474,
+      "note": "全部样本，标签为 run"
+    },
+    "probe_test_run": {
+      "subject": "sub-05",
+      "probe": "probe_test_run",
+      "n_samples": 428,
+      "n_classes": 44,
+      "n_folds": 2,
+      "n_features": 816,
+      "accuracy": 0.0794392523364486,
+      "accuracy_std": 0.004672897196261683,
+      "macro_f1": 0.05181951728304946,
+      "chance": 0.022727272727272728,
+      "majority_baseline": 0.0397196261682243,
+      "epochs": 30,
+      "n_params": 13474,
+      "note": "仅留出 20% 样本，标签为 run"
+    },
+    "probe_test_class": {
+      "subject": "sub-05",
+      "probe": "probe_test_class",
+      "n_samples": 428,
+      "n_classes": 10,
+      "n_folds": 5,
+      "n_features": 816,
+      "accuracy": 0.10981308411214953,
+      "accuracy_std": 0.02586047901036647,
+      "macro_f1": 0.10334606374373641,
+      "chance": 0.1,
+      "majority_baseline": 0.1261682242990654,
+      "epochs": 30,
+      "n_params": 13474,
+      "note": "仅留出 20% 样本，标签为句类（负向对照）"
+    }
+  }
+}

@@ -1,0 +1,2 @@
+﻿subject,protocol,split,n_train,n_test,accuracy,macro_f1,majority_baseline_accuracy,train_loss,train_accuracy
+sub-03,holdout,holdout,1661,415,0.1783132530120482,0.16266096430277904,0.12771084337349398,1.190808900503564,0.5833835039133053

@@ -115,15 +115,22 @@ class EEGNet(nn.Module):
         # 4. 分类头
         self.classifier = nn.Linear(self.n_features, n_classes)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """``x``: ``(N, 1, C, T)``，返回 ``(N, n_classes)`` 的 logits。"""
+    def embed(self, x: torch.Tensor) -> torch.Tensor:
+        """返回分类头之前的展平特征 ``(N, n_features)``。
+
+        供线性探针使用：同一个前向过程，只是在 ``self.classifier`` 之前截断。
+        """
         x = self.bn1(self.conv1(x))
         x = F.elu(self.bn2(self.depthwise(x)))
         x = self.drop1(self.pool1(x))
         x = self.sep_depthwise(x)
         x = F.elu(self.bn3(self.sep_pointwise(x)))
         x = self.drop2(self.pool2(x))
-        return self.classifier(torch.flatten(x, 1))
+        return torch.flatten(x, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """``x``: ``(N, 1, C, T)``，返回 ``(N, n_classes)`` 的 logits。"""
+        return self.classifier(self.embed(x))
 
 
 def build_model(
