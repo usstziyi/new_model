@@ -1,0 +1,269 @@
+[Device] cuda
+
+===== 被试 sub-01 =====
+[CSV] D:\AI\trae_work\new_model\datasets\preprocessed\sub-01_imagine.csv 共 6140 条，选出 10 类：
+   1. type=10  n= 297  求职和职业发展
+   2. type=13  n= 291  饮食和用餐
+   3. type=26  n= 258  个人行为和日常活动
+   4. type=24  n= 255  情感和人际关系
+   5. type=19  n= 250  询问和个人事务
+   6. type= 2  n= 244  健康和安全建议
+   7. type=31  n= 243  工作和职场交流
+   8. type=21  n= 209  教育和学习
+   9. type=14  n= 208  交通和出行
+  10. type=32  n= 204  产品和质量保证
+[Load] run-01 共 185 条，选中 41 条
+[Load] run-02 共 126 条，选中 49 条
+[Load] run-03 共 146 条，选中 88 条
+[Load] run-04 共 143 条，选中 88 条
+[Load] run-05 共 136 条，选中 70 条
+[Load] run-06 共 134 条，选中 81 条
+[Load] run-07 共 140 条，选中 64 条
+[Load] run-08 共 146 条，选中 58 条
+[Load] run-09 共 141 条，选中 56 条
+[Load] run-10 共 130 条，选中 50 条
+[Load] run-11 共 131 条，选中 52 条
+[Load] run-12 共 140 条，选中 42 条
+[Load] run-13 共 149 条，选中 56 条
+[Load] run-14 共 126 条，选中 78 条
+[Load] run-15 共 148 条，选中 82 条
+[Load] run-16 共 140 条，选中 78 条
+[Load] run-17 共 141 条，选中 80 条
+[Load] run-18 共 145 条，选中 44 条
+[Load] run-19 共 138 条，选中 52 条
+[Load] run-20 共 138 条，选中 57 条
+[Load] run-21 共 145 条，选中 33 条
+[Load] run-22 共 145 条，选中 36 条
+[Load] run-23 共 126 条，选中 59 条
+[Load] run-24 共 150 条，选中 46 条
+[Load] run-25 共 131 条，选中 33 条
+[Load] run-26 共 132 条，选中 29 条
+[Load] run-27 共 150 条，选中 48 条
+[Load] run-28 共 134 条，选中 63 条
+[Load] run-29 共 150 条，选中 69 条
+[Load] run-30 共 144 条，选中 48 条
+[Load] run-31 共 142 条，选中 50 条
+[Load] run-32 共 137 条，选中 57 条
+[Load] run-33 共 144 条，选中 44 条
+[Load] run-34 共 135 条，选中 59 条
+[Load] run-35 共 149 条，选中 46 条
+[Load] run-36 共 149 条，选中 64 条
+[Load] run-37 共 146 条，选中 56 条
+[Load] run-38 共 139 条，选中 68 条
+[Load] run-39 共 149 条，选中 68 条
+[Load] run-40 共 128 条，选中 36 条
+[Load] run-41 共 141 条，选中 31 条
+[Load] run-42 共 138 条，选中 39 条
+[Load] run-43 共 149 条，选中 58 条
+[Load] run-44 共 139 条，选中 48 条
+[Load] run-45 共 28 条，选中 5 条
+[Dataset] sub-01 imagine 共 2459 条 / 10 类 / 45 个 run | x (2459, 122, 1651) torch.float32 | channels=122 | sfreq=500 Hz
+
+----- [holdout] 1 折，10 类，chance=0.1000 -----
+    [holdout] holdout: train=1966 test=493
+[sub-01][holdout][holdout] start | train=1966 test=493 epochs=100 steps/epoch=31
+[sub-01][holdout][holdout] epoch 001/100 done | train_loss=2.3678 train_acc=0.1068 | lr=1.00e-03 | elapsed=6.1s
+[sub-01][holdout][holdout] curve epoch 001 | train(eval)=0.1851 test(eval)=0.1055
+[sub-01][holdout][holdout] epoch 002/100 done | train_loss=2.2583 train_acc=0.1638 | lr=9.99e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 002 | train(eval)=0.2589 test(eval)=0.1197
+[sub-01][holdout][holdout] epoch 003/100 done | train_loss=2.2174 train_acc=0.1831 | lr=9.98e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 003 | train(eval)=0.3006 test(eval)=0.1501
+[sub-01][holdout][holdout] epoch 004/100 done | train_loss=2.1440 train_acc=0.2243 | lr=9.96e-04 | elapsed=6.0s
+[sub-01][holdout][holdout] curve epoch 004 | train(eval)=0.3520 test(eval)=0.1562
+[sub-01][holdout][holdout] epoch 005/100 done | train_loss=2.0909 train_acc=0.2492 | lr=9.94e-04 | elapsed=6.1s
+[sub-01][holdout][holdout] curve epoch 005 | train(eval)=0.3769 test(eval)=0.1359
+[sub-01][holdout][holdout] epoch 006/100 done | train_loss=2.0325 train_acc=0.2843 | lr=9.91e-04 | elapsed=6.0s
+[sub-01][holdout][holdout] curve epoch 006 | train(eval)=0.4084 test(eval)=0.1582
+[sub-01][holdout][holdout] epoch 007/100 done | train_loss=1.9836 train_acc=0.3057 | lr=9.88e-04 | elapsed=5.8s
+[sub-01][holdout][holdout] curve epoch 007 | train(eval)=0.4201 test(eval)=0.1623
+[sub-01][holdout][holdout] epoch 008/100 done | train_loss=1.9338 train_acc=0.3210 | lr=9.84e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 008 | train(eval)=0.4532 test(eval)=0.1623
+[sub-01][holdout][holdout] epoch 009/100 done | train_loss=1.8935 train_acc=0.3311 | lr=9.80e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 009 | train(eval)=0.4644 test(eval)=0.1643
+[sub-01][holdout][holdout] epoch 010/100 done | train_loss=1.8522 train_acc=0.3606 | lr=9.76e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 010 | train(eval)=0.4725 test(eval)=0.1542
+[sub-01][holdout][holdout] epoch 011/100 done | train_loss=1.8176 train_acc=0.3627 | lr=9.70e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 011 | train(eval)=0.5025 test(eval)=0.1400
+[sub-01][holdout][holdout] epoch 012/100 done | train_loss=1.7910 train_acc=0.3774 | lr=9.65e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 012 | train(eval)=0.5066 test(eval)=0.1440
+[sub-01][holdout][holdout] epoch 013/100 done | train_loss=1.7675 train_acc=0.3937 | lr=9.59e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 013 | train(eval)=0.5264 test(eval)=0.1481
+[sub-01][holdout][holdout] epoch 014/100 done | train_loss=1.7595 train_acc=0.3789 | lr=9.52e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 014 | train(eval)=0.5326 test(eval)=0.1542
+[sub-01][holdout][holdout] epoch 015/100 done | train_loss=1.7298 train_acc=0.3957 | lr=9.46e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 015 | train(eval)=0.5443 test(eval)=0.1420
+[sub-01][holdout][holdout] epoch 016/100 done | train_loss=1.7092 train_acc=0.4074 | lr=9.38e-04 | elapsed=5.7s
+[sub-01][holdout][holdout] curve epoch 016 | train(eval)=0.5712 test(eval)=0.1623
+[sub-01][holdout][holdout] epoch 017/100 done | train_loss=1.6662 train_acc=0.4303 | lr=9.30e-04 | elapsed=5.8s
+[sub-01][holdout][holdout] curve epoch 017 | train(eval)=0.5707 test(eval)=0.1562
+[sub-01][holdout][holdout] epoch 018/100 done | train_loss=1.6519 train_acc=0.4339 | lr=9.22e-04 | elapsed=6.0s
+[sub-01][holdout][holdout] curve epoch 018 | train(eval)=0.5855 test(eval)=0.1542
+[sub-01][holdout][holdout] epoch 019/100 done | train_loss=1.6202 train_acc=0.4262 | lr=9.14e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 019 | train(eval)=0.5997 test(eval)=0.1521
+[sub-01][holdout][holdout] epoch 020/100 done | train_loss=1.6196 train_acc=0.4257 | lr=9.05e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 020 | train(eval)=0.6205 test(eval)=0.1684
+[sub-01][holdout][holdout] epoch 021/100 done | train_loss=1.5947 train_acc=0.4451 | lr=8.95e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 021 | train(eval)=0.6104 test(eval)=0.1704
+[sub-01][holdout][holdout] epoch 022/100 done | train_loss=1.5926 train_acc=0.4522 | lr=8.85e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 022 | train(eval)=0.6338 test(eval)=0.1704
+[sub-01][holdout][holdout] epoch 023/100 done | train_loss=1.5540 train_acc=0.4629 | lr=8.75e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 023 | train(eval)=0.6445 test(eval)=0.1623
+[sub-01][holdout][holdout] epoch 024/100 done | train_loss=1.5478 train_acc=0.4725 | lr=8.64e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 024 | train(eval)=0.6363 test(eval)=0.1684
+[sub-01][holdout][holdout] epoch 025/100 done | train_loss=1.5247 train_acc=0.4715 | lr=8.54e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 025 | train(eval)=0.6617 test(eval)=0.1805
+[sub-01][holdout][holdout] epoch 026/100 done | train_loss=1.5247 train_acc=0.4736 | lr=8.42e-04 | elapsed=6.0s
+[sub-01][holdout][holdout] curve epoch 026 | train(eval)=0.6663 test(eval)=0.1684
+[sub-01][holdout][holdout] epoch 027/100 done | train_loss=1.5075 train_acc=0.4674 | lr=8.31e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 027 | train(eval)=0.6612 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 028/100 done | train_loss=1.4845 train_acc=0.4791 | lr=8.19e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 028 | train(eval)=0.6587 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 029/100 done | train_loss=1.4930 train_acc=0.4802 | lr=8.06e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 029 | train(eval)=0.6938 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 030/100 done | train_loss=1.4583 train_acc=0.4949 | lr=7.94e-04 | elapsed=5.9s
+[sub-01][holdout][holdout] curve epoch 030 | train(eval)=0.6979 test(eval)=0.1805
+[sub-01][holdout][holdout] epoch 031/100 done | train_loss=1.4136 train_acc=0.5249 | lr=7.81e-04 | elapsed=5.8s
+[sub-01][holdout][holdout] curve epoch 031 | train(eval)=0.6913 test(eval)=0.1704
+[sub-01][holdout][holdout] epoch 032/100 done | train_loss=1.4132 train_acc=0.5173 | lr=7.68e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 032 | train(eval)=0.7045 test(eval)=0.1704
+[sub-01][holdout][holdout] epoch 033/100 done | train_loss=1.4105 train_acc=0.5020 | lr=7.55e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 033 | train(eval)=0.7085 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 034/100 done | train_loss=1.3969 train_acc=0.5326 | lr=7.41e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 034 | train(eval)=0.7213 test(eval)=0.1562
+[sub-01][holdout][holdout] epoch 035/100 done | train_loss=1.3592 train_acc=0.5351 | lr=7.27e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 035 | train(eval)=0.7213 test(eval)=0.1704
+[sub-01][holdout][holdout] epoch 036/100 done | train_loss=1.3690 train_acc=0.5356 | lr=7.13e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 036 | train(eval)=0.7238 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 037/100 done | train_loss=1.3760 train_acc=0.5203 | lr=6.99e-04 | elapsed=5.5s
+[sub-01][holdout][holdout] curve epoch 037 | train(eval)=0.7279 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 038/100 done | train_loss=1.3387 train_acc=0.5300 | lr=6.84e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 038 | train(eval)=0.7452 test(eval)=0.1663
+[sub-01][holdout][holdout] epoch 039/100 done | train_loss=1.3589 train_acc=0.5259 | lr=6.69e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 039 | train(eval)=0.7528 test(eval)=0.1846
+[sub-01][holdout][holdout] epoch 040/100 done | train_loss=1.3514 train_acc=0.5346 | lr=6.55e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 040 | train(eval)=0.7589 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 041/100 done | train_loss=1.3301 train_acc=0.5422 | lr=6.39e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 041 | train(eval)=0.7594 test(eval)=0.1582
+[sub-01][holdout][holdout] epoch 042/100 done | train_loss=1.3387 train_acc=0.5361 | lr=6.24e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 042 | train(eval)=0.7574 test(eval)=0.1623
+[sub-01][holdout][holdout] epoch 043/100 done | train_loss=1.3222 train_acc=0.5534 | lr=6.09e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 043 | train(eval)=0.7665 test(eval)=0.1805
+[sub-01][holdout][holdout] epoch 044/100 done | train_loss=1.3055 train_acc=0.5443 | lr=5.94e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 044 | train(eval)=0.7675 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 045/100 done | train_loss=1.3040 train_acc=0.5580 | lr=5.78e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 045 | train(eval)=0.7660 test(eval)=0.1643
+[sub-01][holdout][holdout] epoch 046/100 done | train_loss=1.2869 train_acc=0.5458 | lr=5.63e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 046 | train(eval)=0.7859 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 047/100 done | train_loss=1.2690 train_acc=0.5666 | lr=5.47e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 047 | train(eval)=0.7772 test(eval)=0.1805
+[sub-01][holdout][holdout] epoch 048/100 done | train_loss=1.2706 train_acc=0.5621 | lr=5.31e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 048 | train(eval)=0.7782 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 049/100 done | train_loss=1.2870 train_acc=0.5626 | lr=5.16e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 049 | train(eval)=0.7787 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 050/100 done | train_loss=1.2454 train_acc=0.5712 | lr=5.00e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 050 | train(eval)=0.7955 test(eval)=0.1785
+[sub-01][holdout][holdout] epoch 051/100 done | train_loss=1.2481 train_acc=0.5682 | lr=4.84e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 051 | train(eval)=0.7991 test(eval)=0.1805
+[sub-01][holdout][holdout] epoch 052/100 done | train_loss=1.2548 train_acc=0.5753 | lr=4.69e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 052 | train(eval)=0.7894 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 053/100 done | train_loss=1.2352 train_acc=0.5692 | lr=4.53e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 053 | train(eval)=0.8001 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 054/100 done | train_loss=1.2561 train_acc=0.5615 | lr=4.37e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 054 | train(eval)=0.8077 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 055/100 done | train_loss=1.2212 train_acc=0.5707 | lr=4.22e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 055 | train(eval)=0.8143 test(eval)=0.1846
+[sub-01][holdout][holdout] epoch 056/100 done | train_loss=1.2336 train_acc=0.5610 | lr=4.06e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 056 | train(eval)=0.8159 test(eval)=0.1663
+[sub-01][holdout][holdout] epoch 057/100 done | train_loss=1.2230 train_acc=0.5661 | lr=3.91e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 057 | train(eval)=0.8230 test(eval)=0.1907
+[sub-01][holdout][holdout] epoch 058/100 done | train_loss=1.2345 train_acc=0.5697 | lr=3.76e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 058 | train(eval)=0.8189 test(eval)=0.1886
+[sub-01][holdout][holdout] epoch 059/100 done | train_loss=1.2093 train_acc=0.5829 | lr=3.61e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 059 | train(eval)=0.8260 test(eval)=0.1907
+[sub-01][holdout][holdout] epoch 060/100 done | train_loss=1.1809 train_acc=0.6002 | lr=3.45e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 060 | train(eval)=0.8210 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 061/100 done | train_loss=1.2298 train_acc=0.5656 | lr=3.31e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 061 | train(eval)=0.8250 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 062/100 done | train_loss=1.2003 train_acc=0.5799 | lr=3.16e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 062 | train(eval)=0.8271 test(eval)=0.1886
+[sub-01][holdout][holdout] epoch 063/100 done | train_loss=1.1998 train_acc=0.5885 | lr=3.01e-04 | elapsed=5.6s
+[sub-01][holdout][holdout] curve epoch 063 | train(eval)=0.8367 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 064/100 done | train_loss=1.1545 train_acc=0.6012 | lr=2.87e-04 | elapsed=5.4s
+[sub-01][holdout][holdout] curve epoch 064 | train(eval)=0.8357 test(eval)=0.1927
+[sub-01][holdout][holdout] epoch 065/100 done | train_loss=1.1928 train_acc=0.5748 | lr=2.73e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 065 | train(eval)=0.8383 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 066/100 done | train_loss=1.1820 train_acc=0.5916 | lr=2.59e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 066 | train(eval)=0.8367 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 067/100 done | train_loss=1.1727 train_acc=0.5941 | lr=2.45e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 067 | train(eval)=0.8388 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 068/100 done | train_loss=1.1744 train_acc=0.5946 | lr=2.32e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 068 | train(eval)=0.8383 test(eval)=0.1846
+[sub-01][holdout][holdout] epoch 069/100 done | train_loss=1.1492 train_acc=0.6002 | lr=2.19e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 069 | train(eval)=0.8433 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 070/100 done | train_loss=1.1592 train_acc=0.5977 | lr=2.06e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 070 | train(eval)=0.8444 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 071/100 done | train_loss=1.1892 train_acc=0.5738 | lr=1.94e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 071 | train(eval)=0.8459 test(eval)=0.1846
+[sub-01][holdout][holdout] epoch 072/100 done | train_loss=1.1631 train_acc=0.5987 | lr=1.81e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 072 | train(eval)=0.8520 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 073/100 done | train_loss=1.1379 train_acc=0.6038 | lr=1.69e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 073 | train(eval)=0.8510 test(eval)=0.1846
+[sub-01][holdout][holdout] epoch 074/100 done | train_loss=1.1216 train_acc=0.6053 | lr=1.58e-04 | elapsed=5.4s
+[sub-01][holdout][holdout] curve epoch 074 | train(eval)=0.8484 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 075/100 done | train_loss=1.1348 train_acc=0.6150 | lr=1.46e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 075 | train(eval)=0.8505 test(eval)=0.1785
+[sub-01][holdout][holdout] epoch 076/100 done | train_loss=1.1618 train_acc=0.5936 | lr=1.36e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 076 | train(eval)=0.8449 test(eval)=0.1785
+[sub-01][holdout][holdout] epoch 077/100 done | train_loss=1.1455 train_acc=0.6094 | lr=1.25e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 077 | train(eval)=0.8454 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 078/100 done | train_loss=1.1454 train_acc=0.6022 | lr=1.15e-04 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 078 | train(eval)=0.8525 test(eval)=0.1785
+[sub-01][holdout][holdout] epoch 079/100 done | train_loss=1.1445 train_acc=0.5921 | lr=1.05e-04 | elapsed=5.4s
+[sub-01][holdout][holdout] curve epoch 079 | train(eval)=0.8515 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 080/100 done | train_loss=1.1585 train_acc=0.5961 | lr=9.55e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 080 | train(eval)=0.8561 test(eval)=0.1785
+[sub-01][holdout][holdout] epoch 081/100 done | train_loss=1.1528 train_acc=0.5956 | lr=8.65e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 081 | train(eval)=0.8530 test(eval)=0.1785
+[sub-01][holdout][holdout] epoch 082/100 done | train_loss=1.1062 train_acc=0.6231 | lr=7.78e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 082 | train(eval)=0.8571 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 083/100 done | train_loss=1.1563 train_acc=0.6053 | lr=6.96e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 083 | train(eval)=0.8550 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 084/100 done | train_loss=1.1224 train_acc=0.6089 | lr=6.18e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 084 | train(eval)=0.8591 test(eval)=0.1826
+[sub-01][holdout][holdout] epoch 085/100 done | train_loss=1.1153 train_acc=0.6109 | lr=5.45e-05 | elapsed=5.4s
+[sub-01][holdout][holdout] curve epoch 085 | train(eval)=0.8606 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 086/100 done | train_loss=1.1363 train_acc=0.6114 | lr=4.76e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 086 | train(eval)=0.8616 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 087/100 done | train_loss=1.0981 train_acc=0.6200 | lr=4.11e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 087 | train(eval)=0.8611 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 088/100 done | train_loss=1.1208 train_acc=0.6109 | lr=3.51e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 088 | train(eval)=0.8657 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 089/100 done | train_loss=1.1084 train_acc=0.6256 | lr=2.96e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 089 | train(eval)=0.8632 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 090/100 done | train_loss=1.0923 train_acc=0.6200 | lr=2.45e-05 | elapsed=5.4s
+[sub-01][holdout][holdout] curve epoch 090 | train(eval)=0.8632 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 091/100 done | train_loss=1.1537 train_acc=0.6058 | lr=1.99e-05 | elapsed=5.4s
+[sub-01][holdout][holdout] curve epoch 091 | train(eval)=0.8647 test(eval)=0.1765
+[sub-01][holdout][holdout] epoch 092/100 done | train_loss=1.1089 train_acc=0.6211 | lr=1.57e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 092 | train(eval)=0.8632 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 093/100 done | train_loss=1.1008 train_acc=0.6267 | lr=1.20e-05 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 093 | train(eval)=0.8616 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 094/100 done | train_loss=1.1199 train_acc=0.6297 | lr=8.86e-06 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 094 | train(eval)=0.8637 test(eval)=0.1704
+[sub-01][holdout][holdout] epoch 095/100 done | train_loss=1.1238 train_acc=0.6180 | lr=6.16e-06 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 095 | train(eval)=0.8662 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 096/100 done | train_loss=1.1034 train_acc=0.6175 | lr=3.94e-06 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 096 | train(eval)=0.8642 test(eval)=0.1704
+[sub-01][holdout][holdout] epoch 097/100 done | train_loss=1.1163 train_acc=0.6195 | lr=2.22e-06 | elapsed=5.4s
+[sub-01][holdout][holdout] curve epoch 097 | train(eval)=0.8642 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 098/100 done | train_loss=1.1324 train_acc=0.6089 | lr=9.87e-07 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 098 | train(eval)=0.8637 test(eval)=0.1724
+[sub-01][holdout][holdout] epoch 099/100 done | train_loss=1.1395 train_acc=0.6022 | lr=2.47e-07 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 099 | train(eval)=0.8637 test(eval)=0.1744
+[sub-01][holdout][holdout] epoch 100/100 done | train_loss=1.1316 train_acc=0.6124 | lr=0.00e+00 | elapsed=5.3s
+[sub-01][holdout][holdout] curve epoch 100 | train(eval)=0.8657 test(eval)=0.1765
+[holdout] 池化 acc=0.1765 95% CI [0.1325, 0.2218] macro_f1=0.1676 | 逐折 0.1765 ± 0.0000 | 多数类=0.1197 chance=0.1000
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\curve100_holdout\sub-01\curve_holdout_sub-01.csv (100 行)
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\curve100_holdout\sub-01\metrics.json
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\curve100_holdout\sub-01\summary_sub-01.csv
+[Saved] D:\AI\trae_work\new_model\outputs\deepnet\eegnet\curve100_holdout\summary_all.csv

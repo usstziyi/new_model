@@ -34,6 +34,11 @@
     uv run experiments/deepnet/eegnet/train.py \
         --subject sub-01 --target-sfreq 250 --protocol cv5
 
+    # 学习曲线：逐 epoch 记录训练集/测试集准确率（仅诊断收敛，不参与选择）
+    uv run experiments/deepnet/eegnet/train.py \
+        --subject sub-01 --protocol holdout --epochs 100 --curve --quiet-steps \
+        --run-name curve100
+
 注意：
 
 - 深度模型的训练轮数是固定的，不做基于测试集的早停，避免把测试信息带回训练；
@@ -82,6 +87,19 @@ FOLD_FIELDS = [
     "majority_baseline_accuracy",
     "train_loss",
     "train_accuracy",
+]
+CURVE_FIELDS = [
+    "epoch",
+    "split",
+    "protocol",
+    "subject",
+    "train_loss",
+    "train_acc_trainmode",
+    "train_acc_eval",
+    "test_acc_eval",
+    "n_train",
+    "n_test",
+    "lr",
 ]
 SUMMARY_FIELDS = [
     "subject",
@@ -274,6 +292,21 @@ def build_splits(
 # ---------------------------------------------------------------------------
 # 训练 / 评估
 # ---------------------------------------------------------------------------
+def eval_accuracy(model: nn.Module, loader, device: torch.device) -> float:
+    """在 eval 模式（dropout 关闭）下计算 loader 上的准确率。"""
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
+            pred = model(x).argmax(dim=1)
+            correct += int((pred == y).sum().item())
+            total += len(y)
+    return correct / max(total, 1)
+
+
 def train_one_fold(
     args,
     dataset: EEGNetDataset,
@@ -284,8 +317,15 @@ def train_one_fold(
     device: torch.device,
     fold_seed: int,
     log_prefix: str = "",
+    curve_rows: list[dict] | None = None,
+    curve_meta: dict | None = None,
 ) -> tuple[np.ndarray, float, float]:
-    """训练一个划分并返回 ``(test_pred, final_train_loss, final_train_acc)``。"""
+    """训练一个划分并返回 ``(test_pred, final_train_loss, final_train_acc)``。
+
+    ``curve_rows`` 非空且 ``args.curve`` 为真时，每隔 ``args.eval_every`` 个 epoch
+    在 eval 模式下评估训练集与测试集准确率并追加一行，用于画学习曲线。
+    这一步只为诊断收敛情况，不参与任何超参或轮数选择。
+    """
     set_seed(fold_seed)
     model = build_model(
         n_channels=dataset.n_channels,
@@ -360,13 +400,14 @@ def train_one_fold(
             total_loss += batch_loss * len(y)
             correct += batch_correct
             total += len(y)
-            print(
-                f"{prefix}epoch {epoch + 1:03d}/{args.epochs} "
-                f"step {step:03d}/{total_steps:03d} "
-                f"loss={batch_loss:.4f} acc={batch_correct / max(len(y), 1):.4f} "
-                f"lr={float(optimizer.param_groups[0]['lr']):.2e}",
-                flush=True,
-            )
+            if not args.quiet_steps:
+                print(
+                    f"{prefix}epoch {epoch + 1:03d}/{args.epochs} "
+                    f"step {step:03d}/{total_steps:03d} "
+                    f"loss={batch_loss:.4f} acc={batch_correct / max(len(y), 1):.4f} "
+                    f"lr={float(optimizer.param_groups[0]['lr']):.2e}",
+                    flush=True,
+                )
         scheduler.step()
         last_loss = total_loss / max(total, 1)
         last_acc = correct / max(total, 1)
@@ -377,6 +418,34 @@ def train_one_fold(
             f"elapsed={time.perf_counter() - epoch_start:.1f}s",
             flush=True,
         )
+
+        # 学习曲线：每 eval_every 个 epoch（以及最后一个 epoch）在 eval 模式下评估
+        if (
+            curve_rows is not None
+            and args.curve
+            and ((epoch + 1) % args.eval_every == 0 or epoch + 1 == args.epochs)
+        ):
+            train_eval_acc = eval_accuracy(model, train_loader, device)
+            test_eval_acc = eval_accuracy(model, test_loader, device)
+            row = {
+                "epoch": epoch + 1,
+                "split": (curve_meta or {}).get("split", ""),
+                "protocol": (curve_meta or {}).get("protocol", ""),
+                "subject": (curve_meta or {}).get("subject", args.subject),
+                "train_loss": last_loss,
+                "train_acc_trainmode": last_acc,
+                "train_acc_eval": train_eval_acc,
+                "test_acc_eval": test_eval_acc,
+                "n_train": int(len(train_idx)),
+                "n_test": int(len(test_idx)),
+                "lr": float(optimizer.param_groups[0]["lr"]),
+            }
+            curve_rows.append(row)
+            print(
+                f"{prefix}curve epoch {epoch + 1:03d} | "
+                f"train(eval)={train_eval_acc:.4f} test(eval)={test_eval_acc:.4f}",
+                flush=True,
+            )
 
     model.eval()
     predictions: list[np.ndarray] = []
@@ -408,6 +477,7 @@ def evaluate_protocol(
     y_pred_parts: list[np.ndarray] = []
     group_parts: list[np.ndarray] = []
     fold_rows: list[dict] = []
+    curve_rows: list[dict] = []
 
     for fold_index, (name, train_idx, test_idx) in enumerate(splits, start=1):
         print(
@@ -424,6 +494,12 @@ def evaluate_protocol(
             device,
             fold_seed=args.seed + fold_index,
             log_prefix=f"[{args.subject}][{protocol}][{name}]",
+            curve_rows=curve_rows,
+            curve_meta={
+                "split": name,
+                "protocol": protocol,
+                "subject": args.subject,
+            },
         )
         y_true = task_labels[test_idx]
         majority = int(
@@ -489,6 +565,7 @@ def evaluate_protocol(
         "n_samples": int(len(y_true)),
         "n_splits": int(len(fold_rows)),
         "folds": fold_rows,
+        "curve": curve_rows,
     }
 
 
@@ -652,6 +729,17 @@ def run_subject(
             result["folds"],
             FOLD_FIELDS,
         )
+        if result["curve"]:
+            write_rows(
+                out_dir / f"curve_{protocol}_{args.subject}.csv",
+                result["curve"],
+                CURVE_FIELDS,
+            )
+            print(
+                f"[Saved] {out_dir / f'curve_{protocol}_{args.subject}.csv'} "
+                f"({len(result['curve'])} 行)",
+                flush=True,
+            )
 
         permutation = None
         if args.permutations > 0:
@@ -853,6 +941,22 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader 工作进程数")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="输出根目录")
     parser.add_argument("--run-name", default=None, help="本次实验目录名，默认按时间命名")
+    parser.add_argument(
+        "--curve",
+        action="store_true",
+        help="逐 epoch 在 eval 模式下评估训练集/测试集，写出 curve_*.csv（仅用于诊断收敛，不参与选择）",
+    )
+    parser.add_argument(
+        "--eval-every",
+        type=int,
+        default=1,
+        help="学习曲线的评估间隔（epoch），默认每轮",
+    )
+    parser.add_argument(
+        "--quiet-steps",
+        action="store_true",
+        help="不逐 step 打印训练日志，只保留 epoch 级输出",
+    )
     return parser.parse_args()
 
 
